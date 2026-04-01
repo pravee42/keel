@@ -30,6 +30,7 @@ import inject as inject_mod
 import service as service_mod
 import regret as regret_mod
 import proxy as proxy_mod
+import projects as projects_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -370,6 +371,7 @@ def install(
 def process(
     quiet: bool = typer.Option(False, "--quiet", "-q"),
     limit: int = typer.Option(50, "--limit", "-n", help="Max events to process"),
+    sync: bool = typer.Option(False, "--sync", help="Sync all project CLAUDE.md files after processing"),
 ):
     """Process captured prompts/commits and extract decisions."""
     verbose = not quiet
@@ -380,6 +382,130 @@ def process(
         saved = [r for r in results if r.get("saved")]
         skipped = [r for r in results if r.get("skipped")]
         rprint(f"\n[green]✓ {len(saved)} decisions saved[/green]  [dim]{len(skipped)} skipped[/dim]")
+    if sync:
+        if verbose:
+            rprint("\n[bold]Syncing project contexts...[/bold]")
+        results_sync = projects_mod.sync_all(verbose=verbose)
+        if verbose:
+            synced = sum(1 for v in results_sync.values() if v)
+            rprint(f"[green]✓ {synced} project(s) synced[/green]")
+
+
+@app.command()
+def sync(
+    project: Optional[str] = typer.Argument(
+        None, help="Project path to sync (default: git root of current directory)"
+    ),
+    all_projects: bool = typer.Option(False, "--all", "-a", help="Sync all known projects"),
+    force: bool = typer.Option(False, "--force", "-f", help="Force sync even if up to date"),
+    quiet: bool = typer.Option(False, "--quiet", "-q"),
+):
+    """Inject per-project decision context into project CLAUDE.md files.
+
+    \b
+    keel sync                 # sync current git repo
+    keel sync /path/to/repo   # sync a specific repo
+    keel sync --all           # sync every known project
+    keel sync --force         # re-generate even if not stale
+    """
+    import subprocess as _sp
+
+    if all_projects:
+        if not quiet:
+            rprint("[bold]Syncing all known projects...[/bold]")
+        results = projects_mod.sync_all(verbose=not quiet)
+        synced = sum(1 for v in results.values() if v)
+        skipped = len(results) - synced
+        if not quiet:
+            rprint(f"\n[green]✓ {synced} synced[/green]  [dim]{skipped} already up to date[/dim]")
+        return
+
+    # Resolve target
+    if project:
+        target = project
+    else:
+        res = _sp.run(["git", "rev-parse", "--show-toplevel"],
+                      capture_output=True, text=True)
+        if res.returncode != 0:
+            rprint("[red]Not inside a git repository.[/red]")
+            rprint("[dim]Use --all or provide a project path.[/dim]")
+            raise typer.Exit(1)
+        target = res.stdout.strip()
+
+    if not quiet:
+        rprint(f"[bold]Syncing[/bold] {target}")
+
+    path = (
+        projects_mod.sync_project(target, verbose=not quiet)
+        if force
+        else projects_mod.sync_if_stale(target, quiet=quiet)
+    )
+
+    if path:
+        if not quiet:
+            rprint(f"[green]✓ Injected → {path}[/green]")
+    else:
+        if not quiet:
+            rprint("[dim]Already up to date. Use --force to regenerate.[/dim]")
+
+
+@app.command("projects")
+def projects_cmd(
+    sync_all: bool = typer.Option(False, "--sync", "-s", help="Sync all listed projects"),
+    remove: Optional[str] = typer.Option(None, "--remove",
+                                          help="Remove keel context from project CLAUDE.md"),
+):
+    """List all projects with tracked decisions and their sync status."""
+    if remove:
+        removed = projects_mod.remove_project_context(__import__("pathlib").Path(remove))
+        if removed:
+            rprint(f"[green]✓ Removed keel context from {remove}/CLAUDE.md[/green]")
+        else:
+            rprint(f"[dim]No keel context found in {remove}/CLAUDE.md[/dim]")
+        return
+
+    project_list = store.get_projects()
+    if not project_list:
+        rprint("[dim]No projects tracked yet.[/dim]")
+        rprint("[dim]Projects are detected automatically from git root when decisions are captured.[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Project",       style="bold")
+    table.add_column("Decisions",     justify="right", width=10)
+    table.add_column("Last Activity", width=14)
+    table.add_column("Sync",          width=12)
+    table.add_column("CLAUDE.md",     width=14)
+
+    for p in project_list:
+        root  = p["project"]
+        name  = __import__("pathlib").Path(root).name
+        stale = projects_mod.is_stale(root)
+        sync_color  = "yellow" if stale else "green"
+        sync_label  = "stale" if stale else "current"
+        claude_path = __import__("pathlib").Path(root) / "CLAUDE.md"
+        has_block   = (
+            claude_path.exists()
+            and projects_mod.MARKER_START in claude_path.read_text()
+        )
+        inj_str = "[green]injected[/green]" if has_block else "[dim]not injected[/dim]"
+        table.add_row(
+            f"{name}\n[dim]{root}[/dim]",
+            str(p["count"]),
+            p["latest"][:10],
+            f"[{sync_color}]{sync_label}[/{sync_color}]",
+            inj_str,
+        )
+
+    console.print(table)
+
+    if sync_all:
+        rprint()
+        results = projects_mod.sync_all(verbose=True)
+        synced = sum(1 for v in results.values() if v)
+        rprint(f"\n[green]✓ {synced} project(s) synced[/green]")
+    else:
+        rprint(f"\n[dim]keel sync --all   to sync all  ·  keel sync   for current project[/dim]")
 
 
 @app.command()

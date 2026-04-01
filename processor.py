@@ -185,6 +185,22 @@ def _detect_tags(text: str, extracted: dict) -> list:
     return tags
 
 
+def _detect_project(cwd: str) -> str:
+    """Return the git root for cwd, or '' if not inside a git repo."""
+    if not cwd:
+        return ""
+    try:
+        result = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return ""
+
+
 def _detect_paths(event: dict) -> list:
     """Extract file paths from git commit text or prompt."""
     import re
@@ -240,6 +256,7 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
         outcome="",
         tags=json.dumps(_detect_tags(event["text"], extracted)),
         paths=json.dumps(_detect_paths(event)),
+        project=_detect_project(event.get("cwd", "")),
     )
 
     # Extract principles
@@ -250,6 +267,14 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
         pass
 
     store.save(d)
+
+    # Trigger per-project CLAUDE.md sync (non-blocking, never raises)
+    if d.project:
+        try:
+            import projects as proj_mod
+            proj_mod.sync_if_stale(d.project, quiet=True)
+        except Exception:
+            pass
 
     if verbose:
         print(f"    → saved [{d.id}]: {d.title}")

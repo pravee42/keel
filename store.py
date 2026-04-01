@@ -25,6 +25,7 @@ class Decision:
     outcome: str      # filled in later
     tags: str         # JSON list — pressure | uncertainty | compromise | temporary | arch
     paths: str        # JSON list — file/module paths this decision touches
+    project: str      # absolute git root path, or '' if unknown
 
 
 def _connect() -> sqlite3.Connection:
@@ -44,10 +45,10 @@ def _connect() -> sqlite3.Connection:
             principles TEXT NOT NULL DEFAULT '[]',
             outcome    TEXT NOT NULL DEFAULT '',
             tags       TEXT NOT NULL DEFAULT '[]',
-            paths      TEXT NOT NULL DEFAULT '[]'
+            paths      TEXT NOT NULL DEFAULT '[]',
+            project    TEXT NOT NULL DEFAULT ''
         )
     """)
-    # Migrate existing DBs that don't have the new columns yet
     _migrate(conn)
     conn.commit()
     return conn
@@ -59,20 +60,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE decisions ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
     if "paths" not in existing:
         conn.execute("ALTER TABLE decisions ADD COLUMN paths TEXT NOT NULL DEFAULT '[]'")
+    if "project" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN project TEXT NOT NULL DEFAULT ''")
 
 
 def save(d: Decision) -> None:
     conn = _connect()
     conn.execute(
-        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (d.id, d.timestamp, d.domain, d.title, d.context,
          d.options, d.choice, d.reasoning, d.principles, d.outcome,
-         d.tags, d.paths),
+         d.tags, d.paths, d.project),
     )
     conn.commit()
 
 
-def get_all() -> list[Decision]:
+def get_all() -> list:
     conn = _connect()
     rows = conn.execute("SELECT * FROM decisions ORDER BY timestamp DESC").fetchall()
     return [_row_to_decision(r) for r in rows]
@@ -84,15 +87,55 @@ def get_by_id(decision_id: str) -> Optional[Decision]:
     return _row_to_decision(row) if row else None
 
 
-def get_by_path(path_fragment: str) -> list[Decision]:
+def get_by_path(path_fragment: str) -> list:
     """Find decisions that touch a given file path."""
     all_d = get_all()
     return [d for d in all_d if path_fragment in d.paths]
 
 
-def get_by_tag(tag: str) -> list[Decision]:
+def get_by_tag(tag: str) -> list:
     all_d = get_all()
     return [d for d in all_d if tag in json.loads(d.tags)]
+
+
+def get_by_project(project_root: str) -> list:
+    """Return all decisions made in a specific git repo, newest first."""
+    conn = _connect()
+    rows = conn.execute(
+        "SELECT * FROM decisions WHERE project = ? ORDER BY timestamp DESC",
+        (project_root,)
+    ).fetchall()
+    return [_row_to_decision(r) for r in rows]
+
+
+def get_projects() -> list:
+    """Return all known project roots with decision counts and latest timestamp."""
+    conn = _connect()
+    rows = conn.execute("""
+        SELECT project, COUNT(*) as count, MAX(timestamp) as latest
+        FROM decisions
+        WHERE project != ''
+        GROUP BY project
+        ORDER BY latest DESC
+    """).fetchall()
+    return [{"project": r["project"], "count": r["count"], "latest": r["latest"]}
+            for r in rows]
+
+
+def get_decisions_since(timestamp: str, project: Optional[str] = None) -> list:
+    """Return decisions newer than the given ISO timestamp, optionally filtered by project."""
+    conn = _connect()
+    if project:
+        rows = conn.execute(
+            "SELECT * FROM decisions WHERE timestamp > ? AND project = ? ORDER BY timestamp DESC",
+            (timestamp, project)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM decisions WHERE timestamp > ? ORDER BY timestamp DESC",
+            (timestamp,)
+        ).fetchall()
+    return [_row_to_decision(r) for r in rows]
 
 
 def update_outcome(decision_id: str, outcome: str) -> None:
@@ -143,9 +186,9 @@ def update_decision(d: Decision) -> None:
 
 def _row_to_decision(row) -> Decision:
     d = dict(row)
-    # Backfill missing columns for rows saved before migration
     d.setdefault("tags", "[]")
     d.setdefault("paths", "[]")
+    d.setdefault("project", "")
     return Decision(**d)
 
 

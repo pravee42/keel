@@ -27,6 +27,14 @@ AGENTS = {
         "calendar": {"Hour": 7, "Minute": 0},  # daily at 7am
         "run_at_load": False,
     },
+    # Sync per-project context every 6 hours (backstop for cross-project arch changes)
+    "com.keel.sync": {
+        "label":       "com.keel.sync",
+        "description": "keel — per-project CLAUDE.md context sync (every 6 hours)",
+        "args":        [str(PYTHON), str(CLI), "sync", "--all", "--quiet"],
+        "interval":    21600,  # 6 hours
+        "run_at_load": True,
+    },
 }
 
 
