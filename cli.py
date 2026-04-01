@@ -28,6 +28,7 @@ import debt as debt_mod
 import profile as profile_mod
 import inject as inject_mod
 import service as service_mod
+import regret as regret_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -711,6 +712,173 @@ def debt(
                              border_style="red"))
     else:
         rprint(f"\n[dim]Add --narrative for prioritized LLM analysis.[/dim]")
+
+
+# ─────────────────────────────────────────────
+# Regret Minimization Score
+# ─────────────────────────────────────────────
+
+@app.command()
+def regret(
+    pending:  bool = typer.Option(False, "--pending", "-p",
+                                  help="List unclassified flagged decisions"),
+    ls:       bool = typer.Option(False, "--list",    "-l",
+                                  help="List all classified decisions"),
+    score:    bool = typer.Option(False, "--score",   "-s",
+                                  help="Show your Regret Minimization Score"),
+    narrative: bool = typer.Option(False, "--narrative", "-n",
+                                   help="LLM-written analysis of your change-of-mind pattern"),
+    growth:   Optional[str] = typer.Option(None, "--growth",
+                                           help="Classify decision <id> as deliberate growth"),
+    regret_id: Optional[str] = typer.Option(None, "--regret",
+                                             help="Classify decision <id> as accidental regret"),
+    note:     str = typer.Option("", "--note", help="Why — your reasoning for this classification"),
+):
+    """Track deliberate vs accidental changes of mind. Build your Regret Minimization Score.
+
+    \b
+    Workflow:
+      keel regret --pending               # see what needs classifying
+      keel regret --growth <id> --note "learned X"
+      keel regret --regret <id> --note "forgot past reasoning"
+      keel regret --score                 # see your score + trend
+      keel regret --narrative             # LLM analysis
+    """
+    from rich.markdown import Markdown
+
+    # ── Classify ──
+    if growth or regret_id:
+        decision_id = growth or regret_id
+        is_growth = bool(growth)
+        d = store.get_by_id(decision_id)
+        if not d:
+            rprint(f"[red]Decision {decision_id} not found.[/red]")
+            raise typer.Exit(1)
+        if not proc.get_diff(decision_id):
+            rprint(f"[yellow]No flagged inconsistency found for [{decision_id}].[/yellow]")
+            rprint("[dim]Only decisions with flagged contradictions can be classified.[/dim]")
+            raise typer.Exit(1)
+        regret_mod.classify(decision_id, is_growth=is_growth, note=note)
+        label = "[green]↑ growth[/green]" if is_growth else "[red]✗ regret[/red]"
+        rprint(f"  {label} [{decision_id}] {d.title}")
+        if note:
+            rprint(f"  [dim]Note: {note}[/dim]")
+        return
+
+    # ── Pending ──
+    if pending:
+        items = regret_mod.get_pending()
+        if not items:
+            rprint("[green]Nothing pending — all flagged decisions are classified.[/green]")
+            return
+        rprint(f"\n[bold]Unclassified inconsistencies[/bold]  [dim]({len(items)} pending)[/dim]\n")
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("ID",     style="dim", width=10)
+        table.add_column("Date",   width=12)
+        table.add_column("Domain", width=10)
+        table.add_column("Title")
+        table.add_column("Inconsistency preview", width=45)
+        for d, diff_text in items:
+            preview = diff_text.replace("\n", " ")[:45]
+            table.add_row(d.id, d.timestamp[:10], d.domain, d.title, f"[dim]{preview}[/dim]")
+        console.print(table)
+        rprint(
+            "\n[dim]Classify with:[/dim]\n"
+            "  [bold]keel regret --growth <id> --note \"learned X\"[/bold]\n"
+            "  [bold]keel regret --regret <id> --note \"forgot past reasoning\"[/bold]"
+        )
+        return
+
+    # ── List classified ──
+    if ls:
+        entries = regret_mod.get_all()
+        if not entries:
+            rprint("[dim]Nothing classified yet. Run: keel regret --pending[/dim]")
+            return
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Date",   width=12)
+        table.add_column("ID",     style="dim", width=10)
+        table.add_column("Type",   width=12)
+        table.add_column("Decision")
+        table.add_column("Note", style="dim")
+        for e in entries:
+            d = store.get_by_id(e.decision_id)
+            title = d.title if d else e.decision_id
+            if e.classification == "growth":
+                cls_str = "[green]↑ growth[/green]"
+            else:
+                cls_str = "[red]✗ regret[/red]"
+            table.add_row(e.timestamp[:10], e.decision_id, cls_str, title, e.note[:40])
+        console.print(table)
+        return
+
+    # ── Score ──
+    if score or narrative or (not pending and not ls and not growth and not regret_id):
+        data = regret_mod.get_score()
+        if data["total"] == 0:
+            rprint("[dim]No classifications yet. Run: keel regret --pending[/dim]")
+            raise typer.Exit(0)
+
+        # Score display
+        pct = data["score"]
+        score_color = "green" if pct >= 0.7 else ("yellow" if pct >= 0.4 else "red")
+        bar_filled  = int(pct * 20)
+        bar = "█" * bar_filled + "░" * (20 - bar_filled)
+
+        rprint(f"\n[bold]Regret Minimization Score[/bold]\n")
+        rprint(f"  [{score_color}]{bar}[/{score_color}]  [{score_color}]{pct:.0%}[/{score_color}]  deliberate\n")
+
+        stat_table = Table(show_header=False, box=None, padding=(0, 2))
+        stat_table.add_column(style="dim", width=22)
+        stat_table.add_column(style="bold")
+        stat_table.add_row("Total classified",   str(data["total"]))
+        stat_table.add_row("↑ Growth (deliberate)", f"[green]{data['growth']}[/green]")
+        stat_table.add_row("✗ Regret (accidental)",  f"[red]{data['regret']}[/red]")
+        trend_color = "green" if data["trend"] == "improving" else (
+            "red" if data["trend"] == "declining" else "dim")
+        stat_table.add_row("Recent trend",
+                           f"[{trend_color}]{data['trend']}[/{trend_color}]"
+                           + (f"  (recent {data['recent_score']:.0%} vs all-time {pct:.0%})"
+                              if data["recent_score"] is not None else ""))
+        console.print(stat_table)
+
+        # By-domain breakdown
+        if data["by_domain"]:
+            rprint("\n[bold]By domain[/bold]")
+            dom_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+            dom_table.add_column("Domain",    width=12)
+            dom_table.add_column("Growth",    justify="right", width=8)
+            dom_table.add_column("Regret",    justify="right", width=8)
+            dom_table.add_column("Score",     justify="right", width=8)
+            dom_table.add_column("Signal",    width=12)
+            for domain, v in sorted(data["by_domain"].items()):
+                total_d = v["growth"] + v["regret"]
+                d_score = v["growth"] / total_d
+                d_color = "green" if d_score >= 0.7 else ("yellow" if d_score >= 0.4 else "red")
+                signal  = "deliberate" if d_score >= 0.7 else ("mixed" if d_score >= 0.4 else "drifting")
+                dom_table.add_row(
+                    domain,
+                    f"[green]{v['growth']}[/green]",
+                    f"[red]{v['regret']}[/red]",
+                    f"[{d_color}]{d_score:.0%}[/{d_color}]",
+                    f"[{d_color}]{signal}[/{d_color}]",
+                )
+            console.print(dom_table)
+
+        # LLM narrative
+        if narrative:
+            rprint()
+            with console.status("Generating analysis..."):
+                report = regret_mod.generate_report()
+            if report:
+                console.print(Panel(
+                    Markdown(report),
+                    title="[bold]Change-of-Mind Analysis[/bold]",
+                    border_style="magenta",
+                ))
+        else:
+            rprint(f"\n[dim]Add --narrative for a full LLM-written analysis.[/dim]")
+            rprint(f"[dim]Classify more decisions with: keel regret --pending[/dim]")
 
 
 # ─────────────────────────────────────────────
