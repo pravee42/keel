@@ -25,6 +25,9 @@ import context as ctx_mod
 import review as review_mod
 import adr as adr_mod
 import debt as debt_mod
+import profile as profile_mod
+import inject as inject_mod
+import service as service_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -274,6 +277,7 @@ def install(
         ins.install_shell_wrappers()
     if not specific or cron:
         ins.install_cron()
+        ins.install_launch_agents()
 
     rprint(f"\n[green]Done.[/green] Queue: [dim]{proc.QUEUE_PATH}[/dim]")
     rprint("Run [bold]decide process[/bold] to process captured events manually.")
@@ -707,6 +711,143 @@ def debt(
                              border_style="red"))
     else:
         rprint(f"\n[dim]Add --narrative for prioritized LLM analysis.[/dim]")
+
+
+# ─────────────────────────────────────────────
+# Persona / injection / service commands
+# ─────────────────────────────────────────────
+
+@app.command()
+def profile(
+    build: bool = typer.Option(False, "--build", "-b", help="(Re)build the persona document"),
+    show: bool  = typer.Option(False, "--show",  "-s", help="Print the current persona"),
+    name: str   = typer.Option("Praveen", "--name", "-n", help="Your name for the document"),
+    status: bool = typer.Option(False, "--status", help="Show staleness / decision count"),
+):
+    """Build and display your developer identity (memory clone)."""
+    from rich.markdown import Markdown
+
+    if status:
+        stale   = profile_mod.persona_is_stale()
+        pending = profile_mod.decisions_since_last_build()
+        rprint(f"  Persona stale: [{'yellow' if stale else 'green'}]{stale}[/]")
+        rprint(f"  Decisions since last build: [bold]{pending}[/bold]")
+        return
+
+    if build:
+        rprint(f"[bold]Building persona for {name}...[/bold]")
+        with console.status("Synthesizing identity from decision history..."):
+            content = profile_mod.build_persona(name=name)
+        if content is None:
+            rprint("[yellow]Not enough decisions yet (need ≥ 5).[/yellow]")
+            raise typer.Exit(0)
+        rprint(f"[green]✓ Persona saved → {profile_mod.PERSONA_PATH}[/green]")
+        console.print(Markdown(content))
+        return
+
+    if show:
+        content = profile_mod.load_persona()
+        if not content:
+            rprint("[dim]No persona yet. Run: decide profile --build[/dim]")
+            raise typer.Exit(0)
+        console.print(Markdown(content))
+        return
+
+    # Default: show staleness hint
+    content = profile_mod.load_persona()
+    if content:
+        stale   = profile_mod.persona_is_stale()
+        pending = profile_mod.decisions_since_last_build()
+        age_str = " [yellow](stale)[/yellow]" if stale else ""
+        rprint(f"Persona exists{age_str}  ·  {pending} new decisions since last build")
+        rprint("[dim]  --show to print  ·  --build to regenerate[/dim]")
+    else:
+        rprint("[dim]No persona yet. Run: decide profile --build[/dim]")
+
+
+@app.command("inject")
+def inject_cmd(
+    target: Optional[str] = typer.Option(
+        None, "--target", "-t",
+        help="Target: claude-code-global | gemini | openai | all (default: all)",
+    ),
+    remove: bool = typer.Option(False, "--remove", "-r", help="Remove persona from targets"),
+    status: bool = typer.Option(False, "--status", "-s", help="Show injection status"),
+):
+    """Inject your persona into Claude Code, Gemini, and other AI tools."""
+    if status:
+        st = inject_mod.injection_status()
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Target", width=22)
+        table.add_column("Label",  width=26)
+        table.add_column("Status")
+        for key, info in inject_mod.TARGETS.items():
+            color = "green" if st[key] == "injected" else ("yellow" if "exists" in st[key] else "dim")
+            table.add_row(key, info["label"], f"[{color}]{st[key]}[/{color}]")
+        console.print(table)
+        return
+
+    targets = None if (target is None or target == "all") else [target]
+
+    if remove:
+        inject_mod.remove(targets)
+        rprint("[green]✓ Persona removed from targets[/green]")
+        return
+
+    with console.status("Injecting persona..."):
+        results = inject_mod.inject(targets)
+
+    for key, val in results.items():
+        label = inject_mod.TARGETS[key]["label"]
+        if str(val).startswith("ERROR"):
+            rprint(f"  [red]✗[/red] {label}: {val}")
+        else:
+            rprint(f"  [green]✓[/green] {label} → {val}")
+
+
+@app.command("service")
+def service_cmd(
+    action: str = typer.Argument(
+        "status", help="Action: install | uninstall | status | trigger"
+    ),
+    label: Optional[str] = typer.Option(
+        None, "--label", "-l",
+        help="Agent label for trigger (e.g. com.decide.collector)",
+    ),
+):
+    """Manage macOS LaunchAgent background services."""
+    if action == "install":
+        rprint("[bold]Installing LaunchAgents...[/bold]")
+        service_mod.install_agents(verbose=True)
+        rprint(f"\n[green]Done.[/green] Agents will run in the background.")
+        rprint(f"[dim]Logs: ~/.decisions/com.decide.*.log[/dim]")
+
+    elif action == "uninstall":
+        rprint("[bold]Uninstalling LaunchAgents...[/bold]")
+        service_mod.uninstall_agents(verbose=True)
+
+    elif action == "status":
+        st = service_mod.agent_status()
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Agent",    width=30)
+        table.add_column("Status")
+        for lbl, state in st.items():
+            color = "green" if state == "running" else ("yellow" if state == "loaded" else "dim")
+            table.add_row(lbl, f"[{color}]{state}[/{color}]")
+        console.print(table)
+
+    elif action == "trigger":
+        lbl = label or "com.decide.collector"
+        ok = service_mod.trigger_now(lbl)
+        if ok:
+            rprint(f"[green]✓ Triggered {lbl}[/green]")
+        else:
+            rprint(f"[red]✗ Failed to trigger {lbl}[/red]")
+            rprint("[dim]Is the agent installed? Run: decide service install[/dim]")
+    else:
+        rprint(f"[red]Unknown action: {action}[/red]")
+        rprint("Valid actions: install | uninstall | status | trigger")
+        raise typer.Exit(1)
 
 
 # ─────────────────────────────────────────────

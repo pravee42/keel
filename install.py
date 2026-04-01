@@ -149,6 +149,12 @@ aider() {{
         print(f"  Shell wrappers: already in {rc_file}")
 
 
+def install_launch_agents():
+    """Install macOS LaunchAgents for background processing and daily persona refresh."""
+    import service
+    service.install_agents(verbose=True)
+
+
 def install_cron():
     """Add cron jobs: process queue every 15 min + weekly digest on Sundays."""
     process_cmd = f"*/15 * * * * {PYTHON} {SCRIPT_DIR / 'cli.py'} process --quiet 2>/dev/null"
