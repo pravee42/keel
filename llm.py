@@ -74,13 +74,13 @@ def _openai_compat_complete(provider: str, messages: list[dict], max_tokens: int
     api_key = cfg.get_api_key(provider)
     if not api_key:
         raise RuntimeError(
-            f"No API key for {provider}. Run: decide config key {provider} <your-key>"
+            f"No API key for {provider}. Run: keel config key {provider} <your-key>"
         )
 
     extra_headers = {}
     if provider == "openrouter":
         extra_headers["HTTP-Referer"] = "https://github.com/decide-tool"
-        extra_headers["X-Title"] = "decide"
+        extra_headers["X-Title"] = "keel"
 
     client = OpenAI(
         api_key=api_key,

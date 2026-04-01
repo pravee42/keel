@@ -11,8 +11,8 @@ import llm
 import store
 import analyzer
 
-QUEUE_PATH = Path.home() / ".decisions" / "queue.jsonl"
-PROCESSED_PATH = Path.home() / ".decisions" / "processed.jsonl"
+QUEUE_PATH = Path.home() / ".keel" / "queue.jsonl"
+PROCESSED_PATH = Path.home() / ".keel" / "processed.jsonl"
 
 
 # ─────────────────────────────────────────────
@@ -98,7 +98,7 @@ def extract_decision(event: dict) -> dict:
 def notify(title: str, message: str):
     """macOS notification. Silently fails on other platforms."""
     try:
-        script = f'display notification "{message[:200]}" with title "decide: {title}"'
+        script = f'display notification "{message[:200]}" with title "keel: {title}"'
         subprocess.run(["osascript", "-e", script], capture_output=True, timeout=3)
     except Exception:
         pass
@@ -115,7 +115,7 @@ def notify_inconsistency(decision_title: str, diff_summary: str):
 # ─────────────────────────────────────────────
 
 def process_queue(verbose: bool = False, limit: int = 50):
-    """Process unprocessed events from queue. Called by `decide process` or cron."""
+    """Process unprocessed events from queue. Called by `keel process` or cron."""
     if not QUEUE_PATH.exists():
         if verbose:
             print("Queue is empty.")
@@ -281,11 +281,11 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
 
 def _save_diff(decision_id: str, diff: str):
     """Save consistency diff to sidecar file."""
-    diffs_path = Path.home() / ".decisions" / "diffs"
+    diffs_path = Path.home() / ".keel" / "diffs"
     diffs_path.mkdir(exist_ok=True)
     (diffs_path / f"{decision_id}.txt").write_text(diff)
 
 
 def get_diff(decision_id: str) -> Optional[str]:
-    path = Path.home() / ".decisions" / "diffs" / f"{decision_id}.txt"
+    path = Path.home() / ".keel" / "diffs" / f"{decision_id}.txt"
     return path.read_text() if path.exists() else None

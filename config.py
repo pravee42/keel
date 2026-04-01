@@ -1,11 +1,11 @@
-"""Persistent config — stored at ~/.decisions/config.json"""
+"""Persistent config — stored at ~/.keel/config.json"""
 
 import json
 import os
 from pathlib import Path
 from typing import Optional
 
-CONFIG_PATH = Path.home() / ".decisions" / "config.json"
+CONFIG_PATH = Path.home() / ".keel" / "config.json"
 
 PROVIDERS = {
     "anthropic": {

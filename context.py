@@ -12,7 +12,7 @@ from typing import Optional
 import llm
 import store
 
-SYSTEM_PROMPT_PATH = Path.home() / ".decisions" / "system_prompt.md"
+SYSTEM_PROMPT_PATH = Path.home() / ".keel" / "system_prompt.md"
 
 # ─────────────────────────────────────────────
 # Global context (AI session injection)

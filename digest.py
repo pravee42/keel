@@ -9,8 +9,8 @@ import llm
 import store
 import processor as proc
 
-DIGESTS_PATH = Path.home() / ".decisions" / "digests"
-RESOLUTIONS_PATH = Path.home() / ".decisions" / "resolutions.jsonl"
+DIGESTS_PATH = Path.home() / ".keel" / "digests"
+RESOLUTIONS_PATH = Path.home() / ".keel" / "resolutions.jsonl"
 
 
 # ─────────────────────────────────────────────

@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-DB_PATH = Path.home() / ".decisions" / "decisions.db"
+DB_PATH = Path.home() / ".keel" / "decisions.db"
 
 
 @dataclass

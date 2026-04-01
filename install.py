@@ -51,7 +51,7 @@ def install_git_hook():
 
     hook_script = hooks_dir / "post-commit"
     hook_content = f"""#!/bin/sh
-# decide — log git commits for decision tracking
+# keel — log git commits for decision tracking
 COMMIT_MSG=$(git log -1 --pretty=%B)
 DIFF_STAT=$(git diff HEAD~1 HEAD --stat 2>/dev/null || git show --stat HEAD)
 FULL_TEXT="COMMIT: $COMMIT_MSG
@@ -77,7 +77,7 @@ echo "$FULL_TEXT" | {PYTHON} {QUEUE_WRITER} --source git --type commit --cwd "$(
 
 def install_shell_wrappers():
     """Add shell function wrappers for Gemini CLI and other AI tools."""
-    wrapper_script = Path.home() / ".decisions" / "shell_wrappers.sh"
+    wrapper_script = Path.home() / ".keel" / "shell_wrappers.sh"
     wrapper_script.parent.mkdir(exist_ok=True)
 
     # Detect shell
@@ -85,7 +85,7 @@ def install_shell_wrappers():
     rc_file = Path.home() / (".zshrc" if "zsh" in shell else ".bashrc")
 
     content = f"""
-# ── decide: AI CLI wrappers ──────────────────────────────
+# ── keel: AI CLI wrappers ──────────────────────────────
 _decide_log_prompt() {{
   local source="$1"
   shift
@@ -159,13 +159,13 @@ def install_cron():
     """Add cron jobs: process queue every 15 min + weekly digest on Sundays."""
     process_cmd = f"*/15 * * * * {PYTHON} {SCRIPT_DIR / 'cli.py'} process --quiet 2>/dev/null"
     # Sunday 9am
-    digest_cmd  = f"0 9 * * 0 {PYTHON} {SCRIPT_DIR / 'cli.py'} weekly --no-save 2>/dev/null | mail -s 'decide: weekly digest' $USER 2>/dev/null || true"
+    digest_cmd  = f"0 9 * * 0 {PYTHON} {SCRIPT_DIR / 'cli.py'} weekly --no-save 2>/dev/null | mail -s 'keel: weekly digest' $USER 2>/dev/null || true"
 
     result = subprocess.run(["crontab", "-l"], capture_output=True, text=True)
     current = result.stdout if result.returncode == 0 else ""
 
     to_add = []
-    if "decide" not in current or "process" not in current:
+    if "keel" not in current or "process" not in current:
         to_add.append(process_cmd)
     if "weekly" not in current:
         to_add.append(digest_cmd)

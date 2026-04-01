@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-PERSONA_PATH = Path.home() / ".decisions" / "persona.md"
+PERSONA_PATH = Path.home() / ".keel" / "persona.md"
 
 # ─────────────────────────────────────────────
 # Injection targets
@@ -61,7 +61,7 @@ def inject(targets: Optional[list] = None, persona_content: Optional[str] = None
     """Inject persona into specified targets. Returns {target: path} for successes."""
     content = persona_content or (PERSONA_PATH.read_text() if PERSONA_PATH.exists() else None)
     if not content:
-        raise RuntimeError("No persona found. Run: decide profile --build")
+        raise RuntimeError("No persona found. Run: keel profile --build")
 
     selected = {k: v for k, v in TARGETS.items()
                 if targets is None or k in targets}

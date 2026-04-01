@@ -7,7 +7,7 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 
-QUEUE_PATH = Path.home() / ".decisions" / "queue.jsonl"
+QUEUE_PATH = Path.home() / ".keel" / "queue.jsonl"
 
 
 def main():

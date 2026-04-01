@@ -15,8 +15,8 @@ import llm
 import store
 import processor as proc
 
-PERSONA_PATH   = Path.home() / ".decisions" / "persona.md"
-META_PATH      = Path.home() / ".decisions" / "persona_meta.json"
+PERSONA_PATH   = Path.home() / ".keel" / "persona.md"
+META_PATH      = Path.home() / ".keel" / "persona_meta.json"
 
 # ─────────────────────────────────────────────
 # Synthesis prompt

@@ -16,8 +16,8 @@ import llm
 import store
 import processor as proc
 
-DIFFS_PATH = Path.home() / ".decisions" / "diffs"
-RESOLUTIONS_PATH = Path.home() / ".decisions" / "resolutions.jsonl"
+DIFFS_PATH = Path.home() / ".keel" / "diffs"
+RESOLUTIONS_PATH = Path.home() / ".keel" / "resolutions.jsonl"
 
 
 # ─────────────────────────────────────────────

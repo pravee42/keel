@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""decide — git diff for your thinking."""
+"""keel — git diff for your thinking."""
 
 import json
 import subprocess
@@ -280,7 +280,7 @@ def install(
         ins.install_launch_agents()
 
     rprint(f"\n[green]Done.[/green] Queue: [dim]{proc.QUEUE_PATH}[/dim]")
-    rprint("Run [bold]decide process[/bold] to process captured events manually.")
+    rprint("Run [bold]keel process[/bold] to process captured events manually.")
 
 
 @app.command()
@@ -351,7 +351,7 @@ def queue(
 @app.command()
 def weekly(
     days: int = typer.Option(7, "--days", "-d", help="How many days back to include"),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save digest to ~/.decisions/digests/"),
+    save: bool = typer.Option(True, "--save/--no-save", help="Save digest to ~/.keel/digests/"),
 ):
     """Generate your weekly thinking digest."""
     from rich.markdown import Markdown
@@ -391,7 +391,7 @@ def weekly(
 
     if save:
         from pathlib import Path
-        digest_dir = Path.home() / ".decisions" / "digests"
+        digest_dir = Path.home() / ".keel" / "digests"
         saved = list(digest_dir.glob("*.json"))[-1] if digest_dir.exists() else None
         if saved:
             rprint(f"\n[dim]Saved → {saved}[/dim]")
@@ -421,9 +421,9 @@ def list_digests():
     from pathlib import Path
     from rich.markdown import Markdown
 
-    digest_dir = Path.home() / ".decisions" / "digests"
+    digest_dir = Path.home() / ".keel" / "digests"
     if not digest_dir.exists() or not list(digest_dir.glob("*.json")):
-        rprint("[dim]No digests yet. Run: decide weekly[/dim]")
+        rprint("[dim]No digests yet. Run: keel weekly[/dim]")
         return
 
     files = sorted(digest_dir.glob("*.json"), reverse=True)
@@ -436,7 +436,7 @@ def list_digests():
             f"[green]{s['consistent']} consistent[/green] · "
             f"[yellow]{s['contradictions']} flagged[/yellow][/dim]"
         )
-    rprint(f"\n[dim]Run [bold]decide weekly[/bold] to generate a new one.[/dim]")
+    rprint(f"\n[dim]Run [bold]keel weekly[/bold] to generate a new one.[/dim]")
 
 
 @app.command()
@@ -540,7 +540,7 @@ def context(
                                 help="Write into CLAUDE.md for automatic injection"),
     project: Optional[str] = typer.Option(None, "--project",
                                            help="Project path for --inject (default: global)"),
-    save: bool = typer.Option(False, "--save", help="Save to ~/.decisions/system_prompt.md"),
+    save: bool = typer.Option(False, "--save", help="Save to ~/.keel/system_prompt.md"),
 ):
     """Generate a personalized system prompt from your decision history.
 
@@ -729,7 +729,7 @@ def profile(
 
     if status:
         stale   = profile_mod.persona_is_stale()
-        pending = profile_mod.decisions_since_last_build()
+        pending = profile_mod.keel_since_last_build()
         rprint(f"  Persona stale: [{'yellow' if stale else 'green'}]{stale}[/]")
         rprint(f"  Decisions since last build: [bold]{pending}[/bold]")
         return
@@ -748,7 +748,7 @@ def profile(
     if show:
         content = profile_mod.load_persona()
         if not content:
-            rprint("[dim]No persona yet. Run: decide profile --build[/dim]")
+            rprint("[dim]No persona yet. Run: keel profile --build[/dim]")
             raise typer.Exit(0)
         console.print(Markdown(content))
         return
@@ -757,12 +757,12 @@ def profile(
     content = profile_mod.load_persona()
     if content:
         stale   = profile_mod.persona_is_stale()
-        pending = profile_mod.decisions_since_last_build()
+        pending = profile_mod.keel_since_last_build()
         age_str = " [yellow](stale)[/yellow]" if stale else ""
         rprint(f"Persona exists{age_str}  ·  {pending} new decisions since last build")
         rprint("[dim]  --show to print  ·  --build to regenerate[/dim]")
     else:
-        rprint("[dim]No persona yet. Run: decide profile --build[/dim]")
+        rprint("[dim]No persona yet. Run: keel profile --build[/dim]")
 
 
 @app.command("inject")
@@ -812,7 +812,7 @@ def service_cmd(
     ),
     label: Optional[str] = typer.Option(
         None, "--label", "-l",
-        help="Agent label for trigger (e.g. com.decide.collector)",
+        help="Agent label for trigger (e.g. com.keel.collector)",
     ),
 ):
     """Manage macOS LaunchAgent background services."""
@@ -820,7 +820,7 @@ def service_cmd(
         rprint("[bold]Installing LaunchAgents...[/bold]")
         service_mod.install_agents(verbose=True)
         rprint(f"\n[green]Done.[/green] Agents will run in the background.")
-        rprint(f"[dim]Logs: ~/.decisions/com.decide.*.log[/dim]")
+        rprint(f"[dim]Logs: ~/.keel/com.keel.*.log[/dim]")
 
     elif action == "uninstall":
         rprint("[bold]Uninstalling LaunchAgents...[/bold]")
@@ -837,13 +837,13 @@ def service_cmd(
         console.print(table)
 
     elif action == "trigger":
-        lbl = label or "com.decide.collector"
+        lbl = label or "com.keel.collector"
         ok = service_mod.trigger_now(lbl)
         if ok:
             rprint(f"[green]✓ Triggered {lbl}[/green]")
         else:
             rprint(f"[red]✗ Failed to trigger {lbl}[/red]")
-            rprint("[dim]Is the agent installed? Run: decide service install[/dim]")
+            rprint("[dim]Is the agent installed? Run: keel service install[/dim]")
     else:
         rprint(f"[red]Unknown action: {action}[/red]")
         rprint("Valid actions: install | uninstall | status | trigger")
@@ -908,7 +908,7 @@ def config_provider(
         if not cfg.get_api_key(name):
             env = cfg.PROVIDERS[name]["key_env"]
             rprint(f"\n[yellow]⚠ No API key for {name}.[/yellow]")
-            rprint(f"  Run: [bold]decide config key {name} <your-key>[/bold]")
+            rprint(f"  Run: [bold]keel config key {name} <your-key>[/bold]")
             rprint(f"  Or set env: [dim]export {env}=<your-key>[/dim]")
     except ValueError as e:
         rprint(f"[red]{e}[/red]")

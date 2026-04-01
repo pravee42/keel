@@ -12,17 +12,17 @@ LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
 
 AGENTS = {
     # Process queue every 15 min
-    "com.decide.collector": {
-        "label":       "com.decide.collector",
-        "description": "decide — background queue processor (every 15 min)",
+    "com.keel.collector": {
+        "label":       "com.keel.collector",
+        "description": "keel — background queue processor (every 15 min)",
         "args":        [str(PYTHON), str(CLI), "process", "--quiet"],
         "interval":    900,    # seconds
         "run_at_load": True,
     },
     # Refresh persona daily at 7am + inject into all tools
-    "com.decide.profile": {
-        "label":       "com.decide.profile",
-        "description": "decide — daily persona refresh + injection",
+    "com.keel.profile": {
+        "label":       "com.keel.profile",
+        "description": "keel — daily persona refresh + injection",
         "args":        [str(PYTHON), str(CLI), "profile", "--build", "--inject-all", "--quiet"],
         "calendar": {"Hour": 7, "Minute": 0},  # daily at 7am
         "run_at_load": False,
@@ -38,8 +38,8 @@ def _build_plist(agent: dict) -> dict:
     plist: dict = {
         "Label":                 agent["label"],
         "ProgramArguments":      agent["args"],
-        "StandardOutPath":       str(Path.home() / ".decisions" / f"{agent['label']}.log"),
-        "StandardErrorPath":     str(Path.home() / ".decisions" / f"{agent['label']}.err"),
+        "StandardOutPath":       str(Path.home() / ".keel" / f"{agent['label']}.log"),
+        "StandardErrorPath":     str(Path.home() / ".keel" / f"{agent['label']}.err"),
         "RunAtLoad":             agent.get("run_at_load", False),
     }
     if "interval" in agent:
@@ -51,7 +51,7 @@ def _build_plist(agent: dict) -> dict:
 
 def install_agents(verbose: bool = True) -> None:
     LAUNCH_AGENTS.mkdir(parents=True, exist_ok=True)
-    Path.home().joinpath(".decisions").mkdir(exist_ok=True)
+    Path.home().joinpath(".keel").mkdir(exist_ok=True)
 
     for label, agent in AGENTS.items():
         path = _plist_path(label)
