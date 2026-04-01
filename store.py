@@ -3,7 +3,7 @@
 import json
 import sqlite3
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -15,14 +15,16 @@ DB_PATH = Path.home() / ".decisions" / "decisions.db"
 class Decision:
     id: str
     timestamp: str
-    domain: str          # code | writing | business | life | other
+    domain: str       # code | writing | business | life | other
     title: str
-    context: str         # situation / problem
-    options: str         # alternatives considered
-    choice: str          # what you decided
-    reasoning: str       # why
-    principles: str      # JSON list — extracted by LLM
-    outcome: str         # filled in later via `decide outcome <id>`
+    context: str      # situation / problem
+    options: str      # alternatives considered
+    choice: str       # what you decided
+    reasoning: str    # why
+    principles: str   # JSON list — extracted by LLM
+    outcome: str      # filled in later
+    tags: str         # JSON list — pressure | uncertainty | compromise | temporary | arch
+    paths: str        # JSON list — file/module paths this decision touches
 
 
 def _connect() -> sqlite3.Connection:
@@ -31,28 +33,41 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("""
         CREATE TABLE IF NOT EXISTS decisions (
-            id        TEXT PRIMARY KEY,
-            timestamp TEXT NOT NULL,
-            domain    TEXT NOT NULL,
-            title     TEXT NOT NULL,
-            context   TEXT NOT NULL,
-            options   TEXT NOT NULL,
-            choice    TEXT NOT NULL,
-            reasoning TEXT NOT NULL,
+            id         TEXT PRIMARY KEY,
+            timestamp  TEXT NOT NULL,
+            domain     TEXT NOT NULL,
+            title      TEXT NOT NULL,
+            context    TEXT NOT NULL,
+            options    TEXT NOT NULL,
+            choice     TEXT NOT NULL,
+            reasoning  TEXT NOT NULL,
             principles TEXT NOT NULL DEFAULT '[]',
-            outcome   TEXT NOT NULL DEFAULT ''
+            outcome    TEXT NOT NULL DEFAULT '',
+            tags       TEXT NOT NULL DEFAULT '[]',
+            paths      TEXT NOT NULL DEFAULT '[]'
         )
     """)
+    # Migrate existing DBs that don't have the new columns yet
+    _migrate(conn)
     conn.commit()
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(decisions)").fetchall()}
+    if "tags" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+    if "paths" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN paths TEXT NOT NULL DEFAULT '[]'")
 
 
 def save(d: Decision) -> None:
     conn = _connect()
     conn.execute(
-        """INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?)""",
+        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
         (d.id, d.timestamp, d.domain, d.title, d.context,
-         d.options, d.choice, d.reasoning, d.principles, d.outcome),
+         d.options, d.choice, d.reasoning, d.principles, d.outcome,
+         d.tags, d.paths),
     )
     conn.commit()
 
@@ -60,13 +75,24 @@ def save(d: Decision) -> None:
 def get_all() -> list[Decision]:
     conn = _connect()
     rows = conn.execute("SELECT * FROM decisions ORDER BY timestamp DESC").fetchall()
-    return [Decision(**dict(r)) for r in rows]
+    return [_row_to_decision(r) for r in rows]
 
 
 def get_by_id(decision_id: str) -> Optional[Decision]:
     conn = _connect()
     row = conn.execute("SELECT * FROM decisions WHERE id = ?", (decision_id,)).fetchone()
-    return Decision(**dict(row)) if row else None
+    return _row_to_decision(row) if row else None
+
+
+def get_by_path(path_fragment: str) -> list[Decision]:
+    """Find decisions that touch a given file path."""
+    all_d = get_all()
+    return [d for d in all_d if path_fragment in d.paths]
+
+
+def get_by_tag(tag: str) -> list[Decision]:
+    all_d = get_all()
+    return [d for d in all_d if tag in json.loads(d.tags)]
 
 
 def update_outcome(decision_id: str, outcome: str) -> None:
@@ -75,13 +101,33 @@ def update_outcome(decision_id: str, outcome: str) -> None:
     conn.commit()
 
 
-def update_principles(decision_id: str, principles: list[str]) -> None:
+def update_principles(decision_id: str, principles: list) -> None:
     conn = _connect()
-    conn.execute(
-        "UPDATE decisions SET principles = ? WHERE id = ?",
-        (json.dumps(principles), decision_id),
-    )
+    conn.execute("UPDATE decisions SET principles = ? WHERE id = ?",
+                 (json.dumps(principles), decision_id))
     conn.commit()
+
+
+def update_tags(decision_id: str, tags: list) -> None:
+    conn = _connect()
+    conn.execute("UPDATE decisions SET tags = ? WHERE id = ?",
+                 (json.dumps(tags), decision_id))
+    conn.commit()
+
+
+def update_paths(decision_id: str, paths: list) -> None:
+    conn = _connect()
+    conn.execute("UPDATE decisions SET paths = ? WHERE id = ?",
+                 (json.dumps(paths), decision_id))
+    conn.commit()
+
+
+def _row_to_decision(row) -> Decision:
+    d = dict(row)
+    # Backfill missing columns for rows saved before migration
+    d.setdefault("tags", "[]")
+    d.setdefault("paths", "[]")
+    return Decision(**d)
 
 
 def new_id() -> str:

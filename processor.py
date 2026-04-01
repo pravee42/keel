@@ -153,6 +153,49 @@ def process_queue(verbose: bool = False, limit: int = 50):
     return results
 
 
+_PRESSURE_SIGNALS = [
+    "deadline", "asap", "quick", "fast", "temporary", "for now", "hack",
+    "workaround", "just ship", "mvp", "good enough", "later", "todo",
+    "tech debt", "revisit", "short-term",
+]
+_UNCERTAINTY_SIGNALS = [
+    "not sure", "maybe", "unsure", "might", "could be", "possibly",
+    "experiment", "try", "test", "see if", "not certain", "unclear",
+]
+_ARCH_SIGNALS = [
+    "architecture", "schema", "database", "auth", "api", "service",
+    "framework", "library", "pattern", "structure", "design", "migrate",
+    "refactor", "rewrite", "split", "merge", "monolith", "microservice",
+]
+
+
+def _detect_tags(text: str, extracted: dict) -> list:
+    combined = (text + " " + extracted.get("reasoning", "")).lower()
+    tags = []
+    if any(s in combined for s in _PRESSURE_SIGNALS):
+        tags.append("pressure")
+    if any(s in combined for s in _UNCERTAINTY_SIGNALS):
+        tags.append("uncertainty")
+    if any(s in combined for s in _ARCH_SIGNALS):
+        tags.append("arch")
+    if "compromise" in combined or "tradeoff" in combined or "trade-off" in combined:
+        tags.append("compromise")
+    if "temporary" in combined or "for now" in combined:
+        tags.append("temporary")
+    return tags
+
+
+def _detect_paths(event: dict) -> list:
+    """Extract file paths from git commit text or prompt."""
+    import re
+    text = event.get("text", "")
+    # Match common path patterns: src/foo/bar.py, ./lib/utils.ts, etc.
+    paths = re.findall(r'(?:^|\s)((?:\./|src/|lib/|app/|pkg/|internal/)[\w/.-]+\.\w+)', text)
+    # Also grab paths from git diff stat lines: "  src/auth/jwt.py | 12 ++"
+    paths += re.findall(r'^\s+([\w/.-]+\.\w+)\s+\|', text, re.MULTILINE)
+    return list(set(p.strip() for p in paths))[:20]
+
+
 def _process_one(event: dict, verbose: bool = False) -> dict:
     """Classify, extract, store, and check one event."""
     if verbose:
@@ -195,6 +238,8 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
         reasoning=_s(extracted.get("reasoning")),
         principles="[]",
         outcome="",
+        tags=json.dumps(_detect_tags(event["text"], extracted)),
+        paths=json.dumps(_detect_paths(event)),
     )
 
     # Extract principles
