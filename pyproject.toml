@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "decide"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "anthropic>=0.40.0",
+    "openai>=1.30.0",
+    "typer>=0.12.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+decide = "cli:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["*"]
