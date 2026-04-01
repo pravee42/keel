@@ -29,6 +29,7 @@ import profile as profile_mod
 import inject as inject_mod
 import service as service_mod
 import regret as regret_mod
+import proxy as proxy_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -247,6 +248,87 @@ def outcome(
         raise typer.Exit(1)
     store.update_outcome(decision_id, text)
     rprint(f"[green]✓ Outcome recorded for [{decision_id}][/green]")
+
+
+@app.command()
+def remove(
+    decision_id: str = typer.Argument(..., help="Decision ID to permanently delete"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Skip confirmation prompt"),
+):
+    """Permanently delete a misclassified or irrelevant decision."""
+    d = store.get_by_id(decision_id)
+    if not d:
+        rprint(f"[red]Decision {decision_id} not found.[/red]")
+        raise typer.Exit(1)
+
+    rprint(f"  [bold]{d.title}[/bold]  [dim][{d.id}] {d.timestamp[:10]} · {d.domain}[/dim]")
+
+    if not yes:
+        confirmed = typer.confirm(f"Permanently delete this decision?", default=False)
+        if not confirmed:
+            rprint("[dim]Cancelled.[/dim]")
+            raise typer.Exit(0)
+
+    store.delete(decision_id)
+
+    # Also remove any sidecar diff
+    diff_path = __import__("pathlib").Path.home() / ".keel" / "diffs" / f"{decision_id}.txt"
+    if diff_path.exists():
+        diff_path.unlink()
+
+    rprint(f"[green]✓ Deleted [{decision_id}][/green]")
+
+
+@app.command()
+def correct(
+    decision_id: str = typer.Argument(..., help="Decision ID to correct"),
+):
+    """Interactively correct a misclassified or poorly extracted decision."""
+    d = store.get_by_id(decision_id)
+    if not d:
+        rprint(f"[red]Decision {decision_id} not found.[/red]")
+        raise typer.Exit(1)
+
+    rprint(Panel(
+        f"[bold]Title:[/bold] {d.title}\n"
+        f"[bold]Domain:[/bold] {d.domain}\n"
+        f"[bold]Choice:[/bold] {d.choice}\n"
+        f"[bold]Reasoning:[/bold] {d.reasoning[:200]}",
+        title=f"Current [{d.id}]",
+        border_style="dim",
+    ))
+    rprint("[dim]Press Enter to keep the current value for any field.[/dim]\n")
+
+    domains = ["code", "writing", "business", "life", "other"]
+    title     = typer.prompt("Title",     default=d.title)
+    domain    = typer.prompt(f"Domain ({'/'.join(domains)})", default=d.domain)
+    context   = typer.prompt("Context",   default=d.context)
+    options   = typer.prompt("Options",   default=d.options)
+    choice    = typer.prompt("Choice",    default=d.choice)
+    reasoning = typer.prompt("Reasoning", default=d.reasoning)
+
+    if domain not in domains:
+        rprint(f"[yellow]Unknown domain '{domain}', keeping '{d.domain}'[/yellow]")
+        domain = d.domain
+
+    d.title     = title
+    d.domain    = domain
+    d.context   = context
+    d.options   = options
+    d.choice    = choice
+    d.reasoning = reasoning
+
+    store.update_decision(d)
+
+    # Re-extract principles from corrected content
+    confirmed = typer.confirm("Re-extract principles from corrected content?", default=True)
+    if confirmed:
+        with console.status("Re-extracting principles..."):
+            principles = analyzer.extract_principles(d)
+            store.update_principles(d.id, principles)
+        rprint(f"[dim]Principles: {', '.join(principles)}[/dim]")
+
+    rprint(f"[green]✓ Updated [{decision_id}][/green]")
 
 
 @app.command()
@@ -887,19 +969,53 @@ def regret(
 
 @app.command()
 def profile(
-    build: bool = typer.Option(False, "--build", "-b", help="(Re)build the persona document"),
-    show: bool  = typer.Option(False, "--show",  "-s", help="Print the current persona"),
-    name: str   = typer.Option("Praveen", "--name", "-n", help="Your name for the document"),
-    status: bool = typer.Option(False, "--status", help="Show staleness / decision count"),
+    build:    bool = typer.Option(False, "--build",    "-b", help="(Re)build the persona document"),
+    show:     bool = typer.Option(False, "--show",     "-s", help="Print the current persona"),
+    name:     str  = typer.Option("Praveen", "--name", "-n", help="Your name for the document"),
+    status:   bool = typer.Option(False, "--status",         help="Show staleness / decision count"),
+    versions: bool = typer.Option(False, "--versions",       help="List persona version history"),
+    diff:     bool = typer.Option(False, "--diff",           help="Show how your thinking changed (latest 2 versions)"),
+    from_date: Optional[str] = typer.Option(None, "--from", help="Older version date for --diff (YYYY-MM-DD)"),
+    to_date:   Optional[str] = typer.Option(None, "--to",   help="Newer version date for --diff (YYYY-MM-DD)"),
 ):
     """Build and display your developer identity (memory clone)."""
     from rich.markdown import Markdown
 
     if status:
         stale   = profile_mod.persona_is_stale()
-        pending = profile_mod.keel_since_last_build()
+        pending = profile_mod.decisions_since_last_build()
         rprint(f"  Persona stale: [{'yellow' if stale else 'green'}]{stale}[/]")
         rprint(f"  Decisions since last build: [bold]{pending}[/bold]")
+        return
+
+    if versions:
+        vers = profile_mod.list_versions()
+        if not vers:
+            rprint("[dim]No snapshots yet. A snapshot is saved each time you run --build.[/dim]")
+            return
+        rprint(f"\n[bold]Persona versions[/bold]  [dim]({len(vers)} snapshots)[/dim]\n")
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Date",   width=14)
+        table.add_column("Size",   justify="right", width=10)
+        table.add_column("Path",   style="dim")
+        for v in vers:
+            table.add_row(v["date"], f"{v['size']:,} bytes", str(v["path"]))
+        console.print(table)
+        rprint(f"\n[dim]Use --diff to compare the latest two, or --from/--to for specific dates.[/dim]")
+        return
+
+    if diff:
+        with console.status("Diffing persona versions..."):
+            result = profile_mod.diff_versions(date_a=from_date, date_b=to_date)
+        if result is None:
+            rprint("[yellow]Need at least 2 persona versions to diff.[/yellow]")
+            rprint("[dim]Run keel profile --build a second time to create a snapshot.[/dim]")
+            raise typer.Exit(0)
+        console.print(Panel(
+            Markdown(result),
+            title="[bold]How your thinking evolved[/bold]",
+            border_style="cyan",
+        ))
         return
 
     if build:
@@ -910,6 +1026,11 @@ def profile(
             rprint("[yellow]Not enough decisions yet (need ≥ 5).[/yellow]")
             raise typer.Exit(0)
         rprint(f"[green]✓ Persona saved → {profile_mod.PERSONA_PATH}[/green]")
+        snap = profile_mod.VERSIONS_DIR
+        if snap.exists():
+            snaps = list(snap.glob("*.md"))
+            if snaps:
+                rprint(f"[dim]  snapshot saved → {sorted(snaps)[-1].name}[/dim]")
         console.print(Markdown(content))
         return
 
@@ -925,10 +1046,10 @@ def profile(
     content = profile_mod.load_persona()
     if content:
         stale   = profile_mod.persona_is_stale()
-        pending = profile_mod.keel_since_last_build()
+        pending = profile_mod.decisions_since_last_build()
         age_str = " [yellow](stale)[/yellow]" if stale else ""
         rprint(f"Persona exists{age_str}  ·  {pending} new decisions since last build")
-        rprint("[dim]  --show to print  ·  --build to regenerate[/dim]")
+        rprint("[dim]  --show  ·  --build  ·  --versions  ·  --diff[/dim]")
     else:
         rprint("[dim]No persona yet. Run: keel profile --build[/dim]")
 
@@ -1015,6 +1136,89 @@ def service_cmd(
     else:
         rprint(f"[red]Unknown action: {action}[/red]")
         rprint("Valid actions: install | uninstall | status | trigger")
+        raise typer.Exit(1)
+
+
+@app.command()
+def proxy(
+    action:      str = typer.Argument("status",
+                                      help="Action: start | stop | status | install"),
+    port:        int = typer.Option(proxy_mod.DEFAULT_PORT, "--port", "-p",
+                                    help="Port to listen on"),
+    forward_url: str = typer.Option("https://api.openai.com", "--forward", "-f",
+                                    help="API to forward requests to"),
+):
+    """Run a local OpenAI-compatible logging proxy.
+
+    \b
+    Any tool that supports a custom base URL can route through keel's proxy.
+    Keel logs every prompt before forwarding — no shell wrappers needed.
+
+    \b
+    Setup (one time):
+      keel proxy start                      # foreground, Ctrl+C to stop
+      keel proxy install                    # background LaunchAgent
+
+    \b
+    Point your tools at it:
+      export OPENAI_BASE_URL=http://localhost:4422/v1
+      aider --openai-api-base http://localhost:4422/v1
+    """
+    if action == "start":
+        if proxy_mod.is_running(port):
+            rprint(f"[yellow]Proxy already running on port {port}.[/yellow]")
+            raise typer.Exit(0)
+        proxy_mod.start(port=port, forward_url=forward_url, block=True)
+
+    elif action == "stop":
+        if proxy_mod.stop():
+            rprint("[green]✓ Proxy stopped[/green]")
+        else:
+            rprint("[dim]No proxy is running (or PID file missing).[/dim]")
+
+    elif action == "status":
+        running = proxy_mod.is_running(port)
+        if running:
+            rprint(f"[green]● running[/green]  http://localhost:{port}/v1")
+            rprint(f"[dim]  health: curl http://localhost:{port}/health[/dim]")
+        else:
+            rprint(f"[dim]○ not running[/dim]  (port {port})")
+            rprint("[dim]  Start with: keel proxy start[/dim]")
+
+    elif action == "install":
+        # Add proxy as a third LaunchAgent
+        import plistlib
+        from pathlib import Path as _Path
+        label     = "com.keel.proxy"
+        la_dir    = _Path.home() / "Library" / "LaunchAgents"
+        plist_path = la_dir / f"{label}.plist"
+        import sys as _sys, os as _os
+        python = _Path(__file__).parent / ".venv" / "bin" / "python"
+        cli    = _Path(__file__)
+        plist_data = {
+            "Label":            label,
+            "ProgramArguments": [str(python), str(cli), "proxy", "start",
+                                 "--port", str(port), "--forward", forward_url],
+            "StandardOutPath":  str(_Path.home() / ".keel" / f"{label}.log"),
+            "StandardErrorPath": str(_Path.home() / ".keel" / f"{label}.err"),
+            "RunAtLoad":        True,
+            "KeepAlive":        True,
+        }
+        la_dir.mkdir(parents=True, exist_ok=True)
+        with open(plist_path, "wb") as f:
+            plistlib.dump(plist_data, f)
+        import subprocess as _sp
+        _sp.run(["launchctl", "unload", str(plist_path)], capture_output=True)
+        result = _sp.run(["launchctl", "load",   str(plist_path)],
+                         capture_output=True, text=True)
+        if result.returncode == 0:
+            rprint(f"[green]✓ {label} installed and started[/green]")
+            rprint(f"  listening on http://localhost:{port}/v1")
+        else:
+            rprint(f"[red]✗ {label}: {result.stderr.strip()}[/red]")
+    else:
+        rprint(f"[red]Unknown action: {action}[/red]")
+        rprint("Valid: start | stop | status | install")
         raise typer.Exit(1)
 
 

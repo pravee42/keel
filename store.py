@@ -122,6 +122,25 @@ def update_paths(decision_id: str, paths: list) -> None:
     conn.commit()
 
 
+def delete(decision_id: str) -> bool:
+    """Permanently delete a decision. Returns True if a row was removed."""
+    conn = _connect()
+    cursor = conn.execute("DELETE FROM decisions WHERE id = ?", (decision_id,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_decision(d: Decision) -> None:
+    """Overwrite all editable fields of an existing decision."""
+    conn = _connect()
+    conn.execute("""
+        UPDATE decisions
+        SET domain=?, title=?, context=?, options=?, choice=?, reasoning=?
+        WHERE id=?
+    """, (d.domain, d.title, d.context, d.options, d.choice, d.reasoning, d.id))
+    conn.commit()
+
+
 def _row_to_decision(row) -> Decision:
     d = dict(row)
     # Backfill missing columns for rows saved before migration

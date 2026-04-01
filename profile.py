@@ -17,6 +17,7 @@ import processor as proc
 
 PERSONA_PATH   = Path.home() / ".keel" / "persona.md"
 META_PATH      = Path.home() / ".keel" / "persona_meta.json"
+VERSIONS_DIR   = Path.home() / ".keel" / "personas"
 
 # ─────────────────────────────────────────────
 # Synthesis prompt
@@ -157,6 +158,9 @@ def build_persona(
         max_tokens=3000,
     )
 
+    # Snapshot current persona before overwriting
+    _snapshot_current()
+
     # Save persona + metadata
     PERSONA_PATH.parent.mkdir(parents=True, exist_ok=True)
     PERSONA_PATH.write_text(content)
@@ -189,3 +193,96 @@ def decisions_since_last_build() -> int:
     last = datetime.fromisoformat(meta["generated_at"])
     return sum(1 for d in store.get_all()
                if datetime.fromisoformat(d.timestamp) > last)
+
+
+# ─────────────────────────────────────────────
+# Versioning
+# ─────────────────────────────────────────────
+
+def _snapshot_current() -> Optional[Path]:
+    """Copy current persona.md to ~/.keel/personas/persona_YYYY-MM-DD.md.
+    No-op if persona doesn't exist or today's snapshot already written.
+    """
+    if not PERSONA_PATH.exists():
+        return None
+    VERSIONS_DIR.mkdir(parents=True, exist_ok=True)
+    date_str  = datetime.utcnow().strftime("%Y-%m-%d")
+    snap_path = VERSIONS_DIR / f"persona_{date_str}.md"
+    if not snap_path.exists():
+        snap_path.write_text(PERSONA_PATH.read_text())
+        return snap_path
+    return None
+
+
+def list_versions() -> list:
+    """Return sorted list of version dicts: {date, path, size}."""
+    if not VERSIONS_DIR.exists():
+        return []
+    files = sorted(VERSIONS_DIR.glob("persona_*.md"), reverse=True)
+    versions = []
+    for f in files:
+        date_str = f.stem.replace("persona_", "")
+        versions.append({
+            "date": date_str,
+            "path": f,
+            "size": f.stat().st_size,
+        })
+    return versions
+
+
+_DIFF_PROMPT = """You are comparing two versions of a developer's identity document.
+
+VERSION A ({date_a}):
+{text_a}
+
+VERSION B ({date_b}):
+{text_b}
+
+Write a focused analysis of how this developer's thinking CHANGED between these two versions.
+Structure:
+## What shifted
+[Principles, preferences, or priorities that changed — be specific, quote both versions]
+
+## What stayed constant
+[Core beliefs that held firm across both versions]
+
+## The trajectory
+[One paragraph: what direction is this person's thinking moving? Are they becoming more opinionated, more pragmatic, narrowing focus, broadening scope?]
+
+Be concrete. If something changed, say what it was before and what it became."""
+
+
+def diff_versions(date_a: Optional[str] = None, date_b: Optional[str] = None) -> Optional[str]:
+    """LLM diff between two persona versions. Defaults to latest two snapshots."""
+    versions = list_versions()
+    # Also include current persona as the "latest"
+    all_versions = []
+    if PERSONA_PATH.exists():
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        all_versions.append({"date": today + " (current)", "path": PERSONA_PATH})
+    all_versions.extend(versions)
+
+    if len(all_versions) < 2:
+        return None
+
+    # Default: latest vs previous
+    if date_a is None and date_b is None:
+        v_new, v_old = all_versions[0], all_versions[1]
+    else:
+        # Find by date prefix
+        def _find(d: str):
+            for v in all_versions:
+                if v["date"].startswith(d):
+                    return v
+            return None
+        v_new = _find(date_b) if date_b else all_versions[0]
+        v_old = _find(date_a) if date_a else all_versions[1]
+        if not v_new or not v_old:
+            return None
+
+    return llm.stream_complete([{"role": "user", "content": _DIFF_PROMPT.format(
+        date_a=v_old["date"],
+        text_a=v_old["path"].read_text()[:3000],
+        date_b=v_new["date"],
+        text_b=v_new["path"].read_text()[:3000],
+    )}], max_tokens=1200)
