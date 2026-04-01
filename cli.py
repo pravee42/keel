@@ -21,6 +21,10 @@ import digest as digest_mod
 import config as cfg
 import llm
 import mood as mood_mod
+import context as ctx_mod
+import review as review_mod
+import adr as adr_mod
+import debt as debt_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -518,6 +522,191 @@ def correlate(
             ))
     else:
         rprint(f"\n[dim]Add --narrative for a full LLM-written analysis.[/dim]")
+
+
+# ─────────────────────────────────────────────
+# DevEx features
+# ─────────────────────────────────────────────
+
+@app.command()
+def context(
+    path: Optional[str] = typer.Option(None, "--path", "-p",
+                                        help="File/module path for re-onboarding context"),
+    inject: bool = typer.Option(False, "--inject",
+                                help="Write into CLAUDE.md for automatic injection"),
+    project: Optional[str] = typer.Option(None, "--project",
+                                           help="Project path for --inject (default: global)"),
+    save: bool = typer.Option(False, "--save", help="Save to ~/.decisions/system_prompt.md"),
+):
+    """Generate a personalized system prompt from your decision history.
+
+    Without --path: full profile for injecting into any AI session.
+    With --path: module-level context for re-onboarding to specific code.
+    """
+    from rich.markdown import Markdown
+
+    decisions = store.get_all()
+
+    if path:
+        rprint(f"\n[bold]Decision context for:[/bold] {path}\n")
+        with console.status("Scanning decision history..."):
+            result = ctx_mod.module_context(path, decisions)
+        console.print(Markdown(result))
+    else:
+        rprint("\n[bold]Generating your development profile...[/bold]\n")
+        with console.status("Analyzing decision history..."):
+            result = ctx_mod.generate_system_prompt(decisions)
+        console.print(Markdown(result))
+
+        if save:
+            p = ctx_mod.save_system_prompt(result)
+            rprint(f"\n[green]✓ Saved → {p}[/green]")
+
+        if inject:
+            project_path = __import__("pathlib").Path(project) if project else None
+            p = ctx_mod.inject_into_claude_code(result, project_path)
+            rprint(f"\n[green]✓ Injected into {p}[/green]")
+            rprint("[dim]Claude Code will now use your profile as context.[/dim]")
+        else:
+            rprint("\n[dim]Tip: --inject writes this into CLAUDE.md for automatic use in Claude Code[/dim]")
+
+
+@app.command()
+def review(
+    diff_file: Optional[str] = typer.Option(None, "--diff", "-d",
+                                             help="Path to diff file (default: git diff HEAD)"),
+    base: str = typer.Option("HEAD", "--base", "-b", help="Git base ref for diff"),
+    path: Optional[str] = typer.Option(None, "--path", "-p", help="Limit diff to this path"),
+):
+    """Review a git diff against your decision history. Flags drifts and contradictions."""
+    from rich.markdown import Markdown
+
+    if diff_file:
+        diff_text = __import__("pathlib").Path(diff_file).read_text()
+    else:
+        with console.status("Getting git diff..."):
+            diff_text = review_mod.get_git_diff(base=base, path=path)
+
+    if not diff_text.strip():
+        rprint("[dim]No changes found.[/dim]")
+        raise typer.Exit(0)
+
+    lines = diff_text.count("\n")
+    rprint(f"\n[bold]Reviewing diff[/bold] ({lines} lines) against your decision history...\n")
+
+    with console.status("[bold yellow]Cross-referencing decisions..."):
+        result = review_mod.review_diff(diff_text)
+
+    console.print(Panel(Markdown(result), title="[bold]Pre-PR Decision Review[/bold]",
+                         border_style="yellow"))
+
+
+@app.command()
+def adr(
+    decision_id: Optional[str] = typer.Argument(None,
+                                                  help="Generate ADR for a specific decision ID"),
+    auto: bool = typer.Option(False, "--auto",
+                               help="Auto-generate ADRs for all arch decisions without one"),
+    adr_dir: Optional[str] = typer.Option(None, "--dir", help="Output directory (default: docs/decisions/)"),
+    ls: bool = typer.Option(False, "--list", "-l", help="List existing ADRs"),
+):
+    """Generate Architecture Decision Records from your decision history."""
+    from rich.markdown import Markdown
+    from pathlib import Path
+
+    out_dir = Path(adr_dir) if adr_dir else None
+
+    if ls:
+        adrs = adr_mod.list_adrs(out_dir)
+        if not adrs:
+            rprint("[dim]No ADRs found in docs/decisions/[/dim]")
+            return
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("File", style="dim")
+        table.add_column("Title")
+        table.add_column("Date", width=12)
+        table.add_column("Status", width=12)
+        for a in adrs:
+            table.add_row(a["file"], a["title"], a["date"], a["status"])
+        console.print(table)
+        return
+
+    if decision_id:
+        d = store.get_by_id(decision_id)
+        if not d:
+            rprint(f"[red]Decision {decision_id} not found.[/red]")
+            raise typer.Exit(1)
+        with console.status(f"Generating ADR for [{decision_id}]..."):
+            content, path = adr_mod.generate_adr(d, out_dir)
+        rprint(f"[green]✓ ADR written → {path}[/green]")
+        rprint()
+        console.print(Markdown(content))
+        return
+
+    if auto:
+        decisions = store.get_all()
+        candidates = [d for d in decisions if adr_mod.should_generate_adr(d)]
+        if not candidates:
+            rprint("[dim]No architectural decisions found to generate ADRs for.[/dim]")
+            return
+        rprint(f"[bold]Found {len(candidates)} architectural decisions[/bold]\n")
+        for d in candidates:
+            with console.status(f"  [{d.id}] {d.title}..."):
+                _, path = adr_mod.generate_adr(d, out_dir)
+            rprint(f"  [green]✓[/green] {path.name}")
+        return
+
+    rprint("Use [bold]decide adr <id>[/bold] or [bold]decide adr --auto[/bold]")
+
+
+@app.command()
+def debt(
+    domain: Optional[str] = typer.Option(None, "--domain", "-d"),
+    narrative: bool = typer.Option(False, "--narrative", "-n",
+                                    help="LLM-written prioritized analysis"),
+):
+    """Show tech debt — decisions made under pressure, uncertainty, or as compromises."""
+    from rich.markdown import Markdown
+
+    with console.status("Scanning for tech debt..."):
+        decisions = debt_mod.get_debt_decisions(domain=domain)
+
+    if not decisions:
+        rprint("[green]No tech debt decisions found.[/green]")
+        rprint("[dim](Decisions get tagged automatically when pressure/uncertainty signals are detected)[/dim]")
+        return
+
+    rprint(f"\n[bold]Tech Debt[/bold]  [dim]{len(decisions)} decisions[/dim]\n")
+
+    rows = debt_mod.quick_debt_table(decisions)
+    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    table.add_column("Score", justify="right", width=7)
+    table.add_column("ID",    style="dim",     width=10)
+    table.add_column("Date",                   width=12)
+    table.add_column("Domain",                 width=10)
+    table.add_column("Title")
+    table.add_column("Tags",   style="dim")
+
+    for r in rows:
+        score_color = "red" if r["score"] >= 6 else ("yellow" if r["score"] >= 3 else "dim")
+        table.add_row(
+            f"[{score_color}]{r['score']}[/{score_color}]",
+            r["id"],
+            r["date"],
+            r["domain"],
+            r["title"],
+            ", ".join(r["tags"]),
+        )
+    console.print(table)
+
+    if narrative:
+        rprint()
+        with console.status("Generating debt analysis..."):
+            report = debt_mod.generate_debt_report(decisions)
+        console.print(Panel(Markdown(report), title="[bold]Tech Debt Analysis[/bold]",
+                             border_style="red"))
+    else:
+        rprint(f"\n[dim]Add --narrative for prioritized LLM analysis.[/dim]")
 
 
 # ─────────────────────────────────────────────
