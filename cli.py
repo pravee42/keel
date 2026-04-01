@@ -20,6 +20,7 @@ import processor as proc
 import digest as digest_mod
 import config as cfg
 import llm
+import mood as mood_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -428,6 +429,95 @@ def list_digests():
             f"[yellow]{s['contradictions']} flagged[/yellow][/dim]"
         )
     rprint(f"\n[dim]Run [bold]decide weekly[/bold] to generate a new one.[/dim]")
+
+
+@app.command()
+def correlate(
+    narrative: bool = typer.Option(False, "--narrative", "-n",
+                                   help="Generate LLM narrative (slower, richer)"),
+    days: int = typer.Option(0, "--days", "-d",
+                             help="Limit to last N days (0 = all time)"),
+):
+    """Show how decision quality correlates with time-of-day and day-of-week."""
+    from rich.markdown import Markdown
+
+    decisions = store.get_all()
+    if days > 0:
+        since = __import__("datetime").datetime.utcnow() - __import__("datetime").timedelta(days=days)
+        decisions = [d for d in decisions
+                     if __import__("datetime").datetime.fromisoformat(d.timestamp) >= since]
+
+    if len(decisions) < 3:
+        rprint("[dim]Need at least 3 decisions to compute correlations.[/dim]")
+        raise typer.Exit(0)
+
+    with console.status("Computing correlations..."):
+        stats = mood_mod.quick_stats(decisions)
+
+    # ── Time-of-day table ──
+    rprint(f"\n[bold]Decision quality by time of day[/bold]  "
+           f"[dim]({stats['total_decisions']} decisions, "
+           f"{stats['total_flagged']} flagged)[/dim]\n")
+
+    time_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    time_table.add_column("Time slot",  width=30)
+    time_table.add_column("Decisions",  justify="right", width=10)
+    time_table.add_column("Flagged",    justify="right", width=10)
+    time_table.add_column("Flag rate",  justify="right", width=10)
+    time_table.add_column("Signal",     width=8)
+
+    for row in stats["time_rows"]:
+        rate  = row["rate"]
+        color = "red" if rate >= 0.5 else ("yellow" if rate >= 0.25 else "green")
+        bar   = "⚠⚠⚠" if rate >= 0.5 else ("⚠⚠ " if rate >= 0.25 else ("⚠  " if rate > 0 else "✓  "))
+        time_table.add_row(
+            row["condition"],
+            str(row["total"]),
+            str(row["flagged"]),
+            f"[{color}]{rate:.0%}[/{color}]",
+            f"[{color}]{bar}[/{color}]",
+        )
+    console.print(time_table)
+
+    # ── Day type table ──
+    rprint("\n[bold]Weekday vs weekend[/bold]\n")
+    day_table = Table(show_header=False, box=None, padding=(0, 2))
+    day_table.add_column(width=14)
+    day_table.add_column(justify="right", width=10)
+    day_table.add_column(justify="right", width=10)
+    day_table.add_column(justify="right", width=10)
+
+    for row in stats["day_rows"]:
+        rate  = row["rate"]
+        color = "red" if rate >= 0.5 else ("yellow" if rate >= 0.25 else "green")
+        day_table.add_row(
+            row["condition"],
+            f"{row['total']} decisions",
+            f"{row['flagged']} flagged",
+            f"[{color}]{rate:.0%}[/{color}]",
+        )
+    console.print(day_table)
+
+    # ── Worst conditions callout ──
+    if stats["worst"]:
+        rprint("\n[bold yellow]Highest-risk conditions[/bold yellow]")
+        for dim, cond, rate, total in stats["worst"]:
+            rprint(f"  [yellow]⚠[/yellow]  [bold]{cond}[/bold]  "
+                   f"[dim]{rate:.0%} flag rate across {total} decisions[/dim]")
+
+    # ── Optional LLM narrative ──
+    if narrative:
+        rprint()
+        with console.status("[bold]Generating narrative analysis..."):
+            report = mood_mod.generate_mood_report(decisions)
+        if report:
+            rprint(Panel(
+                __import__("rich.markdown", fromlist=["Markdown"]).Markdown(report),
+                title="[bold]Mood Correlation Analysis[/bold]",
+                border_style="magenta",
+            ))
+    else:
+        rprint(f"\n[dim]Add --narrative for a full LLM-written analysis.[/dim]")
 
 
 # ─────────────────────────────────────────────
