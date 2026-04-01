@@ -175,16 +175,24 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
             print(f"    → extraction failed: {e}")
         return {"skipped": True, "reason": f"extraction error: {e}"}
 
+    def _s(val, default="") -> str:
+        """Coerce LLM output field to str — guards against null/list returns."""
+        if val is None:
+            return default
+        if isinstance(val, list):
+            return ", ".join(str(v) for v in val)
+        return str(val)
+
     # Step 3: Build and store Decision
     d = store.Decision(
         id=store.new_id(),
         timestamp=event["timestamp"],
-        domain=extracted.get("domain", "other"),
-        title=extracted.get("title", "Untitled"),
-        context=extracted.get("context", ""),
-        options=extracted.get("options", ""),
-        choice=extracted.get("choice", ""),
-        reasoning=extracted.get("reasoning", ""),
+        domain=_s(extracted.get("domain"), "other"),
+        title=_s(extracted.get("title"), "Untitled"),
+        context=_s(extracted.get("context")),
+        options=_s(extracted.get("options")),
+        choice=_s(extracted.get("choice")),
+        reasoning=_s(extracted.get("reasoning")),
         principles="[]",
         outcome="",
     )
