@@ -43,18 +43,32 @@ Reply with ONLY valid JSON:
 {{"is_decision": true/false, "confidence": 0.0-1.0, "reason": "one line why"}}"""
 
 
+def _parse_json(text: str, fallback: dict) -> dict:
+    """Extract the first valid JSON object from text, ignoring trailing content."""
+    text = text.strip()
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Find the first '{' and decode only the first complete object
+    start = text.find("{")
+    if start == -1:
+        return fallback
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+        return obj
+    except json.JSONDecodeError:
+        return fallback
+
+
 def classify(event: dict) -> dict:
     text = llm.complete([{"role": "user", "content": CLASSIFIER_PROMPT.format(
         source=event["source"],
         type=event["type"],
         text=event["text"][:2000],
     )}], max_tokens=256).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return json.loads(text[start:end]) if start != -1 else {"is_decision": False, "confidence": 0}
+    return _parse_json(text, {"is_decision": False, "confidence": 0})
 
 
 # ─────────────────────────────────────────────
@@ -83,12 +97,7 @@ def extract_decision(event: dict) -> dict:
         type=event["type"],
         text=event["text"][:3000],
     )}], max_tokens=1024).strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        return json.loads(text[start:end])
+    return _parse_json(text, {})
 
 
 # ─────────────────────────────────────────────
