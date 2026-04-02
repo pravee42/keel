@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Cost{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Token Cost</h1>
+
+<div class="flex gap-3 mb-6">
+  {% for d in [7, 30, 90] %}
+  <a href="/cost?days={{ d }}"
+    class="px-4 py-2 rounded-lg text-sm font-medium border transition-colors
+    {% if days == d %}bg-sky-600 text-white border-sky-600{% else %}border-slate-200 text-slate-600 hover:bg-slate-50{% endif %}">
+    Last {{ d }} days
+  </a>
+  {% endfor %}
+</div>
+
+{% if data.records %}
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Total spend</p>
+    <p class="text-3xl font-bold mt-1
+      {% if data.total_cost < 0.5 %}text-green-600{% elif data.total_cost < 2.0 %}text-yellow-600{% else %}text-red-600{% endif %}">
+      ${{ "%.4f" | format(data.total_cost) }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">LLM calls</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">{{ data.records | length }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Input tokens</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">{{ "{:,}".format(data.total_input) }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Output tokens</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">{{ "{:,}".format(data.total_output) }}</p>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  <!-- By model -->
+  <div class="card overflow-hidden">
+    <div class="px-5 py-4 border-b border-slate-100">
+      <h2 class="font-semibold text-slate-700">By model</h2>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 border-b border-slate-100">
+        <tr>
+          <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Model</th>
+          <th class="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Calls</th>
+          <th class="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Cost</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-50">
+        {% for model, v in data.by_model.items() | sort(attribute='1.cost', reverse=True) %}
+        <tr>
+          <td class="px-4 py-2.5 font-mono text-xs text-slate-700">{{ model }}</td>
+          <td class="px-4 py-2.5 text-right text-slate-500">{{ v.calls }}</td>
+          <td class="px-4 py-2.5 text-right font-medium
+            {% if v.cost < 0.1 %}text-green-600{% elif v.cost < 0.5 %}text-yellow-600{% else %}text-red-600{% endif %}">
+            ${{ "%.4f" | format(v.cost) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Daily chart -->
+  {% if data.by_day %}
+  <div class="card p-5">
+    <h2 class="font-semibold text-slate-700 mb-4">Daily spend</h2>
+    {% set max_cost = data.by_day.values() | map(attribute='cost') | max %}
+    <div class="space-y-2">
+      {% for day, v in data.by_day.items() %}
+      {% set bar_pct = ((v.cost / max_cost) * 100) | int if max_cost > 0 else 0 %}
+      <div class="flex items-center gap-3">
+        <span class="text-xs text-slate-400 font-mono w-24 flex-shrink-0">{{ day }}</span>
+        <div class="flex-1 bg-slate-100 rounded-full h-2">
+          <div class="h-2 rounded-full
+            {% if v.cost < 0.05 %}bg-green-400{% elif v.cost < 0.2 %}bg-yellow-400{% else %}bg-red-400{% endif %}"
+            style="width: {{ bar_pct }}%"></div>
+        </div>
+        <span class="text-xs text-slate-500 w-16 text-right">${{ "%.4f" | format(v.cost) }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+{% else %}
+<div class="card p-8 text-center">
+  <p class="text-2xl mb-2">📊</p>
+  <p class="font-semibold text-slate-700">No usage recorded yet</p>
+  <p class="text-sm text-slate-400 mt-1">Usage is logged automatically after keel makes LLM calls.</p>
+</div>
+{% endif %}
+
+{% endblock %}

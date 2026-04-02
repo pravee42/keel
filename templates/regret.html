@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Regret Review{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-2">Regret Minimization</h1>
+<p class="text-slate-500 text-sm mb-6">Classify flagged contradictions as deliberate growth or accidental drift.</p>
+
+<!-- Score summary -->
+{% if score.total > 0 %}
+<div class="card p-5 mb-6">
+  <div class="flex items-center gap-6">
+    <div>
+      <p class="text-xs font-medium text-slate-500 uppercase tracking-wide mb-1">Your score</p>
+      {% set pct = (score.score * 100) | int %}
+      <p class="text-4xl font-bold
+        {% if score.score >= 0.7 %}text-green-600
+        {% elif score.score >= 0.4 %}text-yellow-600
+        {% else %}text-red-600{% endif %}">{{ pct }}%</p>
+    </div>
+    <div class="flex-1">
+      <div class="flex gap-1 mb-2">
+        {% for i in range(20) %}
+          <div class="h-3 flex-1 rounded-sm
+            {% if i < (score.score * 20) | int %}
+              {% if score.score >= 0.7 %}bg-green-400
+              {% elif score.score >= 0.4 %}bg-yellow-400
+              {% else %}bg-red-400{% endif %}
+            {% else %}bg-slate-100{% endif %}"></div>
+        {% endfor %}
+      </div>
+      <div class="flex gap-4 text-sm">
+        <span class="text-green-600 font-medium">↑ {{ score.growth }} growth</span>
+        <span class="text-red-500 font-medium">✗ {{ score.regret }} regret</span>
+        <span class="text-slate-400">trend: {{ score.trend }}</span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Pending items -->
+{% if pending %}
+<h2 class="font-semibold text-slate-700 mb-4">
+  Pending review
+  <span class="ml-2 badge bg-yellow-100 text-yellow-700">{{ pending | length }}</span>
+</h2>
+
+<div class="space-y-4" id="pending-list">
+{% for item in pending %}
+<div class="card p-5" id="item-{{ item.id }}">
+  <div class="flex items-start justify-between gap-4 mb-3">
+    <div>
+      <p class="font-semibold text-slate-800">{{ item.title }}</p>
+      <p class="text-xs text-slate-400 mt-0.5">{{ item.timestamp[:10] }} &middot; {{ item.domain }}</p>
+    </div>
+    <span class="badge bg-yellow-50 text-yellow-700 flex-shrink-0">⚠ flagged</span>
+  </div>
+
+  <div class="bg-slate-50 rounded-lg p-3 mb-4 text-xs text-slate-600">
+    <p class="font-medium text-slate-500 uppercase tracking-wide text-xs mb-1">Flagged inconsistency</p>
+    <pre>{{ item.diff[:400] }}</pre>
+  </div>
+
+  <!-- AI suggestion -->
+  <div id="suggestion-{{ item.id }}" class="mb-4 hidden">
+    <div class="grid grid-cols-2 gap-3">
+      <div id="growth-box-{{ item.id }}" class="rounded-lg p-3 bg-green-50 border border-green-200">
+        <p class="text-xs font-semibold text-green-700 mb-1">↑ Growth</p>
+        <p id="growth-reason-{{ item.id }}" class="text-xs text-green-700"></p>
+      </div>
+      <div id="regret-box-{{ item.id }}" class="rounded-lg p-3 bg-red-50 border border-red-200">
+        <p class="text-xs font-semibold text-red-600 mb-1">✗ Regret</p>
+        <p id="regret-reason-{{ item.id }}" class="text-xs text-red-600"></p>
+      </div>
+    </div>
+    <p id="recommendation-{{ item.id }}" class="text-xs text-slate-500 mt-2"></p>
+  </div>
+
+  <div class="flex items-center gap-2 flex-wrap">
+    <button onclick="getSuggestion('{{ item.id }}')" id="suggest-btn-{{ item.id }}"
+      class="px-3 py-1.5 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-lg text-sm transition-colors">
+      💡 Get AI suggestion
+    </button>
+    <button onclick="classify('{{ item.id }}', true)"
+      class="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium transition-colors">
+      ↑ Growth
+    </button>
+    <button onclick="classify('{{ item.id }}', false)"
+      class="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
+      ✗ Regret
+    </button>
+  </div>
+</div>
+{% endfor %}
+</div>
+
+{% else %}
+<div class="card p-8 text-center">
+  <p class="text-2xl mb-2">🎉</p>
+  <p class="font-semibold text-slate-700">All caught up!</p>
+  <p class="text-sm text-slate-400 mt-1">No decisions awaiting classification.</p>
+</div>
+{% endif %}
+
+<!-- Classified history -->
+{% if classified %}
+<h2 class="font-semibold text-slate-700 mt-8 mb-4">Classified history</h2>
+<div class="card overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 border-b border-slate-100">
+      <tr>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase w-24">Date</th>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase w-20">Type</th>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Decision</th>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Note</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-50">
+      {% for e in classified %}
+      <tr>
+        <td class="px-4 py-2.5 text-slate-400 font-mono text-xs">{{ e.timestamp[:10] }}</td>
+        <td class="px-4 py-2.5">
+          {% if e.classification == 'growth' %}
+            <span class="badge bg-green-50 text-green-700">↑ growth</span>
+          {% else %}
+            <span class="badge bg-red-50 text-red-600">✗ regret</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-2.5 font-medium text-slate-700">{{ e.title }}</td>
+        <td class="px-4 py-2.5 text-slate-500 text-xs">{{ e.note[:60] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% endblock %}
+{% block scripts %}
+<script>
+function getSuggestion(id) {
+  const btn = document.getElementById(`suggest-btn-${id}`);
+  btn.disabled = true;
+  btn.textContent = 'Loading…';
+
+  fetch(`/api/regret/${id}/suggest`)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById(`growth-reason-${id}`).textContent  = data.growth_reason || '';
+      document.getElementById(`regret-reason-${id}`).textContent  = data.regret_reason || '';
+      document.getElementById(`recommendation-${id}`).textContent =
+        `AI recommends: ${data.recommendation} (confidence: ${Math.round((data.confidence||0.5)*100)}%)`;
+      document.getElementById(`suggestion-${id}`).classList.remove('hidden');
+      btn.textContent = '💡 Suggested';
+    })
+    .catch(() => { btn.textContent = '💡 Get AI suggestion'; btn.disabled = false; });
+}
+
+function classify(id, isGrowth) {
+  const note = prompt('Optional note (why):') || '';
+  fetch(`/api/regret/${id}/classify`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ is_growth: isGrowth, note }),
+  }).then(r => r.json()).then(() => {
+    const el = document.getElementById(`item-${id}`);
+    el.style.opacity = '0.4';
+    el.innerHTML += `<p class="mt-2 text-sm font-medium ${isGrowth ? 'text-green-600' : 'text-red-500'}">
+      ${isGrowth ? '↑ Classified as growth' : '✗ Classified as regret'}</p>`;
+    setTimeout(() => el.remove(), 1500);
+  });
+}
+</script>
+{% endblock %}

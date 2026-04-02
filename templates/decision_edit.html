@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Edit Decision{% endblock %}
+{% block content %}
+
+<div class="mb-5">
+  <a href="/decisions/{{ d.id }}" class="text-sm text-sky-600 hover:underline">← Back</a>
+</div>
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Edit Decision</h1>
+
+<div class="card p-6 max-w-2xl">
+  <form method="POST" action="/decisions/{{ d.id }}/edit">
+    <div class="space-y-4">
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Title</label>
+        <input type="text" name="title" value="{{ d.title }}" required
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"/>
+      </div>
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Domain</label>
+        <select name="domain"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300">
+          {% for dom in ['code', 'writing', 'business', 'life', 'other'] %}
+          <option value="{{ dom }}" {% if d.domain == dom %}selected{% endif %}>{{ dom }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Context</label>
+        <textarea name="context" rows="2"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 resize-y">{{ d.context }}</textarea>
+      </div>
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Options considered</label>
+        <textarea name="options" rows="2"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 resize-y">{{ d.options }}</textarea>
+      </div>
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Choice</label>
+        <textarea name="choice" rows="2"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 resize-y">{{ d.choice }}</textarea>
+      </div>
+
+      <div>
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Reasoning</label>
+        <textarea name="reasoning" rows="3"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300 resize-y">{{ d.reasoning }}</textarea>
+      </div>
+
+      <div class="flex gap-3 pt-2">
+        <button type="submit"
+          class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm rounded-lg font-medium transition-colors">
+          Save changes
+        </button>
+        <a href="/decisions/{{ d.id }}"
+          class="px-5 py-2.5 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm rounded-lg font-medium transition-colors">
+          Cancel
+        </a>
+      </div>
+    </div>
+  </form>
+</div>
+
+{% endblock %}

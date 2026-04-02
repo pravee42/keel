@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Process Queue{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Process Queue</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Pending events</p>
+    <p class="text-3xl font-bold mt-1 {% if queue_stats.pending > 0 %}text-yellow-600{% else %}text-slate-800{% endif %}">
+      {{ queue_stats.pending }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Total in queue</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">{{ queue_stats.total }}</p>
+  </div>
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Processed</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">{{ queue_stats.processed }}</p>
+  </div>
+</div>
+
+<div class="card p-6 mb-6">
+  <h2 class="font-semibold text-slate-700 mb-4">Run processor</h2>
+  <div class="flex gap-3">
+    <button id="btn-process" onclick="startProcess(false)"
+      class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-sm font-medium transition-colors">
+      ⚙️ Process queue
+    </button>
+    <button id="btn-process-sync" onclick="startProcess(true)"
+      class="px-5 py-2.5 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors">
+      ⚙️ Process + sync projects
+    </button>
+  </div>
+
+  <div id="output-box" class="hidden mt-5">
+    <div class="flex items-center gap-2 mb-2">
+      <div id="spinner" class="w-3 h-3 rounded-full bg-sky-500 animate-pulse"></div>
+      <p class="text-sm font-medium text-slate-600">Processing…</p>
+    </div>
+    <pre id="output" class="bg-slate-900 text-green-400 text-xs p-4 rounded-xl overflow-x-auto min-h-16 max-h-96 overflow-y-auto"></pre>
+  </div>
+</div>
+
+<!-- Recent queue events -->
+<div class="card overflow-hidden">
+  <div class="px-5 py-4 border-b border-slate-100">
+    <h2 class="font-semibold text-slate-700">Recent queue events</h2>
+  </div>
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 border-b border-slate-100">
+      <tr>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase w-24">Time</th>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase w-24">Source</th>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase w-20">Status</th>
+        <th class="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase">Preview</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-50">
+      {% for e in recent_events %}
+      <tr>
+        <td class="px-4 py-2.5 text-slate-400 font-mono text-xs">{{ e.timestamp[11:19] }}</td>
+        <td class="px-4 py-2.5"><span class="badge bg-slate-100 text-slate-600">{{ e.source }}</span></td>
+        <td class="px-4 py-2.5">
+          {% if e.processed %}
+            <span class="badge bg-green-50 text-green-600">done</span>
+          {% else %}
+            <span class="badge bg-yellow-50 text-yellow-700">pending</span>
+          {% endif %}
+        </td>
+        <td class="px-4 py-2.5 text-slate-600 text-xs truncate max-w-xs">{{ e.preview }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4" class="px-4 py-6 text-center text-slate-400 text-sm">Queue is empty</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+function startProcess(sync) {
+  const box = document.getElementById('output-box');
+  const out = document.getElementById('output');
+  const spinner = document.getElementById('spinner');
+  box.classList.remove('hidden');
+  out.textContent = '';
+  document.getElementById('btn-process').disabled = true;
+  document.getElementById('btn-process-sync').disabled = true;
+  spinner.classList.add('animate-pulse');
+
+  const es = new EventSource(`/api/process/stream?sync=${sync}`);
+  es.onmessage = (e) => {
+    if (e.data === '__DONE__') {
+      es.close();
+      spinner.classList.remove('animate-pulse');
+      spinner.classList.add('bg-green-500');
+      document.getElementById('btn-process').disabled = false;
+      document.getElementById('btn-process-sync').disabled = false;
+    } else {
+      out.textContent += e.data + '\n';
+      out.scrollTop = out.scrollHeight;
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    spinner.classList.remove('animate-pulse');
+    spinner.classList.add('bg-red-500');
+    document.getElementById('btn-process').disabled = false;
+    document.getElementById('btn-process-sync').disabled = false;
+  };
+}
+</script>
+{% endblock %}

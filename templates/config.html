@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Config{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Configuration</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  <!-- Provider & model -->
+  <div class="card p-6">
+    <h2 class="font-semibold text-slate-700 mb-4">LLM Provider</h2>
+    <form method="POST" action="/config/provider">
+      <div class="mb-4">
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-2">Provider</label>
+        <div class="space-y-2">
+          {% for p, info in providers.items() %}
+          <label class="flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors
+            {% if current_provider == p %}border-sky-300 bg-sky-50{% else %}border-slate-200 hover:border-slate-300{% endif %}">
+            <input type="radio" name="provider" value="{{ p }}" {% if current_provider == p %}checked{% endif %}
+              class="text-sky-600"/>
+            <div>
+              <p class="text-sm font-medium text-slate-800">{{ info.label }}</p>
+              <p class="text-xs text-slate-400">{{ info.default_model }}</p>
+            </div>
+          </label>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="mb-4">
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">Model</label>
+        <input type="text" name="model" value="{{ current_model }}"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"/>
+      </div>
+      <button type="submit"
+        class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm rounded-lg font-medium transition-colors">
+        Save
+      </button>
+    </form>
+  </div>
+
+  <!-- API keys -->
+  <div class="card p-6">
+    <h2 class="font-semibold text-slate-700 mb-4">API Keys</h2>
+    <form method="POST" action="/config/keys">
+      {% for p, info in providers.items() %}
+      <div class="mb-4">
+        <label class="text-xs font-medium text-slate-500 uppercase tracking-wide block mb-1">
+          {{ info.label }}
+          {% if key_status[p] %}
+            <span class="ml-1 badge bg-green-50 text-green-600 normal-case">set</span>
+          {% endif %}
+        </label>
+        <input type="password" name="key_{{ p }}"
+          placeholder="{{ key_status[p] or 'not set' }}"
+          class="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"/>
+      </div>
+      {% endfor %}
+      <button type="submit"
+        class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm rounded-lg font-medium transition-colors">
+        Save keys
+      </button>
+    </form>
+  </div>
+
+  <!-- Test connection -->
+  <div class="card p-6">
+    <h2 class="font-semibold text-slate-700 mb-2">Test connection</h2>
+    <p class="text-sm text-slate-500 mb-4">
+      Current: <span class="font-medium text-slate-700">{{ current_provider }}</span> / <span class="font-medium text-slate-700">{{ current_model }}</span>
+    </p>
+    <button onclick="testConnection()"
+      class="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-700 text-sm rounded-lg font-medium transition-colors">
+      Test now
+    </button>
+    <div id="test-result" class="hidden mt-3 p-3 rounded-lg text-sm"></div>
+  </div>
+
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+async function testConnection() {
+  const btn = event.target;
+  btn.disabled = true; btn.textContent = 'Testing…';
+  const result = document.getElementById('test-result');
+  result.classList.remove('hidden', 'bg-green-50', 'bg-red-50', 'text-green-700', 'text-red-700');
+  try {
+    const r = await fetch('/api/config/test');
+    const data = await r.json();
+    if (data.ok) {
+      result.className = 'mt-3 p-3 rounded-lg text-sm bg-green-50 text-green-700';
+      result.textContent = '✓ Connected — ' + data.message;
+    } else {
+      result.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-700';
+      result.textContent = '✗ Failed — ' + data.message;
+    }
+  } catch(e) {
+    result.className = 'mt-3 p-3 rounded-lg text-sm bg-red-50 text-red-700';
+    result.textContent = 'Request failed: ' + e.message;
+  }
+  result.classList.remove('hidden');
+  btn.disabled = false; btn.textContent = 'Test now';
+}
+</script>
+{% endblock %}

@@ -1951,5 +1951,31 @@ def team_cmd(
     raise typer.Exit(1)
 
 
+# ─────────────────────────────────────────────
+# Web GUI
+# ─────────────────────────────────────────────
+
+@app.command("web")
+def web_cmd(
+    port: int = typer.Option(5005, "--port", "-p", help="Port to listen on"),
+    no_browser: bool = typer.Option(False, "--no-browser", help="Don't auto-open browser"),
+):
+    """Start the keel web GUI in your browser.
+
+    \b
+      keel web              # opens http://localhost:5005
+      keel web --port 8080  # custom port
+    """
+    try:
+        import webserver
+    except ImportError:
+        rprint("[red]Flask not installed. Run: pip install flask[/red]")
+        raise typer.Exit(1)
+
+    rprint(f"[bold]keel web[/bold]  http://localhost:{port}")
+    rprint("[dim]Ctrl+C to stop[/dim]")
+    webserver.run(port=port, open_browser=not no_browser)
+
+
 if __name__ == "__main__":
     app()

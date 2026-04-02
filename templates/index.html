@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Dashboard</h1>
+
+<!-- Stat cards -->
+<div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Decisions</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">{{ stats.total }}</p>
+    <p class="text-xs text-slate-400 mt-1">{{ stats.domains | join(', ') }}</p>
+  </div>
+
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Regret Score</p>
+    {% if stats.regret_score is not none %}
+      <p class="text-3xl font-bold mt-1
+        {% if stats.regret_score >= 0.7 %}text-green-600
+        {% elif stats.regret_score >= 0.4 %}text-yellow-600
+        {% else %}text-red-600{% endif %}">
+        {{ (stats.regret_score * 100) | int }}%
+      </p>
+      <p class="text-xs text-slate-400 mt-1">{{ stats.regret_trend }}</p>
+    {% else %}
+      <p class="text-3xl font-bold text-slate-300 mt-1">—</p>
+      <p class="text-xs text-slate-400 mt-1">no data yet</p>
+    {% endif %}
+  </div>
+
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Cost (30d)</p>
+    <p class="text-3xl font-bold text-slate-800 mt-1">${{ "%.3f" | format(stats.cost_30d) }}</p>
+    <p class="text-xs text-slate-400 mt-1">{{ stats.llm_calls }} LLM calls</p>
+  </div>
+
+  <div class="card p-5">
+    <p class="text-xs font-medium text-slate-500 uppercase tracking-wide">Queue</p>
+    <p class="text-3xl font-bold mt-1 {% if stats.queue_pending > 0 %}text-yellow-600{% else %}text-slate-800{% endif %}">
+      {{ stats.queue_pending }}
+    </p>
+    <p class="text-xs text-slate-400 mt-1">events pending</p>
+  </div>
+
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  <!-- Recent decisions -->
+  <div class="card">
+    <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+      <h2 class="font-semibold text-slate-700">Recent decisions</h2>
+      <a href="/decisions" class="text-xs text-sky-600 hover:underline">View all →</a>
+    </div>
+    <ul class="divide-y divide-slate-50">
+      {% for d in recent_decisions %}
+      <li class="px-5 py-3 hover:bg-slate-50 transition-colors">
+        <a href="/decisions/{{ d.id }}" class="block">
+          <div class="flex items-start justify-between gap-2">
+            <p class="text-sm font-medium text-slate-800 leading-snug">{{ d.title }}</p>
+            <span class="badge bg-slate-100 text-slate-500 flex-shrink-0">{{ d.domain }}</span>
+          </div>
+          <p class="text-xs text-slate-400 mt-0.5">{{ d.timestamp[:10] }} · {{ d.choice[:60] }}</p>
+        </a>
+      </li>
+      {% else %}
+      <li class="px-5 py-6 text-center text-sm text-slate-400">No decisions yet</li>
+      {% endfor %}
+    </ul>
+  </div>
+
+  <!-- Pending regret + quick actions -->
+  <div class="space-y-4">
+    <div class="card p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Pending regret review</h2>
+      {% if stats.regret_pending > 0 %}
+        <p class="text-sm text-slate-600 mb-3">
+          <span class="font-medium text-yellow-700">{{ stats.regret_pending }}</span>
+          decision{{ 's' if stats.regret_pending != 1 }} flagged as contradictions, awaiting classification.
+        </p>
+        <a href="/regret" class="inline-flex items-center gap-1.5 px-3 py-2 bg-yellow-50 hover:bg-yellow-100
+           text-yellow-800 rounded-lg text-sm font-medium transition-colors border border-yellow-200">
+          Review now →
+        </a>
+      {% else %}
+        <p class="text-sm text-green-700">All caught up — nothing pending.</p>
+      {% endif %}
+    </div>
+
+    <div class="card p-5">
+      <h2 class="font-semibold text-slate-700 mb-3">Quick actions</h2>
+      <div class="space-y-2">
+        <a href="/process" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200
+           hover:border-sky-300 hover:bg-sky-50 text-sm text-slate-700 transition-colors">
+          <span>⚙️</span> Process queue
+          {% if stats.queue_pending > 0 %}
+            <span class="ml-auto badge bg-yellow-100 text-yellow-700">{{ stats.queue_pending }} pending</span>
+          {% endif %}
+        </a>
+        <a href="/github" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200
+           hover:border-sky-300 hover:bg-sky-50 text-sm text-slate-700 transition-colors">
+          <span>🐙</span> Fetch GitHub PRs
+        </a>
+        <a href="/profile" class="flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200
+           hover:border-sky-300 hover:bg-sky-50 text-sm text-slate-700 transition-colors">
+          <span>🧠</span> View / rebuild persona
+        </a>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

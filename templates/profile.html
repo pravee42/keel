@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Profile{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Developer Profile</h1>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+  <div class="lg:col-span-2">
+    {% if persona %}
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="font-semibold text-slate-700">Current persona</h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Built {{ meta.generated_at[:10] if meta else '—' }} from {{ meta.n_decisions if meta else '?' }} decisions
+            {% if stale %}<span class="ml-2 badge bg-yellow-50 text-yellow-700">stale</span>{% endif %}
+          </p>
+        </div>
+        <form method="POST" action="/profile/build">
+          <button type="submit"
+            class="px-4 py-2 bg-sky-600 hover:bg-sky-700 text-white text-sm rounded-lg font-medium transition-colors">
+            {% if stale %}🔄 Rebuild{% else %}Rebuild{% endif %}
+          </button>
+        </form>
+      </div>
+      <div class="prose prose-sm max-w-none text-slate-700 text-sm leading-relaxed whitespace-pre-wrap bg-slate-50 rounded-lg p-4">{{ persona }}</div>
+    </div>
+    {% else %}
+    <div class="card p-8 text-center">
+      <p class="text-2xl mb-2">🧠</p>
+      <p class="font-semibold text-slate-700">No persona yet</p>
+      <p class="text-sm text-slate-400 mt-1 mb-4">Need at least 5 decisions to build a profile.</p>
+      <form method="POST" action="/profile/build">
+        <button type="submit"
+          class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm rounded-lg font-medium transition-colors">
+          Build persona
+        </button>
+      </form>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="space-y-4">
+    <div class="card p-5">
+      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-3">Stats</h2>
+      <dl class="space-y-2 text-sm">
+        <div class="flex justify-between">
+          <dt class="text-slate-500">Total decisions</dt>
+          <dd class="font-medium text-slate-700">{{ decision_count }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-slate-500">Since last build</dt>
+          <dd class="font-medium {% if pending_count > 0 %}text-yellow-600{% else %}text-slate-700{% endif %}">{{ pending_count }}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-slate-500">Status</dt>
+          <dd class="font-medium {% if stale %}text-yellow-600{% else %}text-green-600{% endif %}">
+            {% if stale %}stale{% else %}fresh{% endif %}
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    {% if versions %}
+    <div class="card overflow-hidden">
+      <div class="px-4 py-3 border-b border-slate-100">
+        <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide">Version history</h2>
+      </div>
+      <ul class="divide-y divide-slate-50">
+        {% for v in versions %}
+        <li class="px-4 py-2.5 text-sm flex justify-between">
+          <span class="text-slate-700 font-mono text-xs">{{ v.date }}</span>
+          <span class="text-slate-400 text-xs">{{ "{:,}".format(v.size) }} bytes</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

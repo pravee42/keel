@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}keel{% endblock %} — keel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { colors: { keel: { 50:'#f0f9ff', 500:'#0ea5e9', 700:'#0369a1', 900:'#0c4a6e' } } } }
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .nav-link { @apply flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors; }
+    .nav-link.active { @apply bg-slate-700 text-white; }
+    .card { @apply bg-white rounded-xl border border-slate-200 shadow-sm; }
+    .badge { @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+  </style>
+</head>
+<body class="h-full bg-slate-50 text-slate-900">
+<div class="flex h-full min-h-screen">
+
+  <!-- Sidebar -->
+  <aside class="w-56 flex-shrink-0 bg-slate-800 flex flex-col">
+    <div class="px-4 py-5 border-b border-slate-700">
+      <a href="/" class="flex items-center gap-2">
+        <span class="text-2xl">⚓</span>
+        <span class="text-white font-bold text-lg tracking-tight">keel</span>
+      </a>
+      <p class="text-slate-400 text-xs mt-0.5">git diff for your thinking</p>
+    </div>
+
+    <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
+      <p class="text-slate-500 text-xs font-semibold uppercase tracking-wider px-3 pt-2 pb-1">Core</p>
+      <a href="/"         class="nav-link {% if active=='dashboard' %}active{% endif %}">📊 Dashboard</a>
+      <a href="/decisions" class="nav-link {% if active=='decisions' %}active{% endif %}">🗂 Decisions</a>
+      <a href="/process"   class="nav-link {% if active=='process' %}active{% endif %}">⚙️ Process</a>
+      <a href="/regret"    class="nav-link {% if active=='regret' %}active{% endif %}">↕ Regret</a>
+
+      <p class="text-slate-500 text-xs font-semibold uppercase tracking-wider px-3 pt-4 pb-1">Insights</p>
+      <a href="/cost"     class="nav-link {% if active=='cost' %}active{% endif %}">💰 Cost</a>
+      <a href="/quality"  class="nav-link {% if active=='quality' %}active{% endif %}">✓ Quality</a>
+      <a href="/profile"  class="nav-link {% if active=='profile' %}active{% endif %}">🧠 Profile</a>
+
+      <p class="text-slate-500 text-xs font-semibold uppercase tracking-wider px-3 pt-4 pb-1">Sources</p>
+      <a href="/github"   class="nav-link {% if active=='github' %}active{% endif %}">🐙 GitHub</a>
+      <a href="/team"     class="nav-link {% if active=='team' %}active{% endif %}">👥 Team</a>
+
+      <p class="text-slate-500 text-xs font-semibold uppercase tracking-wider px-3 pt-4 pb-1">System</p>
+      <a href="/config"   class="nav-link {% if active=='config' %}active{% endif %}">🔧 Config</a>
+    </nav>
+
+    <div class="px-4 py-3 border-t border-slate-700 text-xs text-slate-500">
+      localhost:{{ port }}
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main class="flex-1 overflow-y-auto">
+    <div class="max-w-6xl mx-auto px-6 py-6">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+          <div class="mb-4 px-4 py-3 rounded-lg text-sm font-medium
+            {% if cat == 'error' %}bg-red-50 text-red-700 border border-red-200
+            {% else %}bg-green-50 text-green-700 border border-green-200{% endif %}">
+            {{ msg }}
+          </div>
+        {% endfor %}
+      {% endwith %}
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+</div>
+
+<script>
+// Tiny helpers used across pages
+function post(url, data) {
+  return fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  }).then(r => r.json());
+}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
