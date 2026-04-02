@@ -11,7 +11,7 @@ Each project gets its own context block, auto-maintained. You never have to touc
 ## How it works
 
 ```
-Claude Code prompt / git commit / gemini CLI call / any OpenAI-compat tool
+Claude Code prompt / git commit / gemini CLI call / any OpenAI-compat tool / GitHub PR
   → queue_writer.py     non-blocking hook, appends to ~/.keel/queue.jsonl
   → processor.py        runs every 15 min via LaunchAgent (or: keel process)
       → classify: is this actually a decision?
@@ -108,6 +108,43 @@ keel regret --list             # all classified decisions
 keel regret --narrative        # LLM analysis of your change-of-mind pattern
 ```
 
+### Outcome quality
+```bash
+keel outcome <id> --text "shipped to prod, zero issues"    # record what happened
+keel quality <id> --rating good        # rate: good | neutral | bad
+keel quality --stats                   # which principles correlate with good outcomes
+keel quality --narrative               # LLM: which principles to trust / stop using
+```
+
+### GitHub PR capture
+```bash
+keel github config --token ghp_...    # store your GitHub token (one-time setup)
+keel github detect                    # show auto-detected repo from git remote
+keel github fetch                     # fetch PRs from current repo (last 30 days)
+keel github fetch --repo owner/repo   # specific repo
+keel github fetch --since 60          # look back further
+keel github fetch --pr 42             # single PR
+keel github fetch --process           # fetch + process immediately
+```
+
+### Token cost tracking
+```bash
+keel cost                      # last 30 days: total spend + per-model breakdown
+keel cost --since 7            # last 7 days
+keel cost --breakdown          # daily spend bar chart
+keel cost --reset              # clear usage log
+```
+
+### Team mode
+```bash
+keel team export --output mine.json    # export your decisions to share
+keel team add --name alice --file alice.json   # import a teammate's history
+keel team list                         # list imported team members
+keel team conflicts --name alice       # LLM: where your principles clash
+keel team persona                      # build shared team engineering philosophy
+keel team remove --name alice          # remove a member's data
+```
+
 ### Pre-commit / pre-PR
 ```bash
 keel check --title "..." --context "..." --reasoning "..."
@@ -184,8 +221,58 @@ For every contradiction keel flags, you classify it:
 Over time this builds a score (0–100%) showing how often you change your mind on purpose vs. by accident. High score = you're learning. Low score = you're drifting.
 
 ```bash
-keel regret --pending   # see what needs classifying
+keel regret --pending   # interactive review with AI suggestions
 keel regret --score     # your score, trend, breakdown by domain
+```
+
+---
+
+## Outcome quality correlation
+
+Once you record outcomes on past decisions, keel builds a table showing which of your principles actually produce good results.
+
+```bash
+keel outcome <id> --text "worked well in production"
+keel quality <id> --rating good
+keel quality --stats        # principle → good/neutral/bad outcome table
+keel quality --narrative    # LLM: which principles to double down on, which to question
+```
+
+---
+
+## GitHub PR capture
+
+PR descriptions and review comments are where your most explicit tradeoff reasoning lives. Keel can pull them in:
+
+```bash
+keel github config --token ghp_...      # one-time setup
+keel github fetch --process             # pull PRs + extract decisions immediately
+```
+
+Decisions extracted from PRs go through the same pipeline as everything else — consistency check, principle extraction, persona injection.
+
+---
+
+## Token cost visibility
+
+Every keel LLM call logs token counts and estimated cost to `~/.keel/usage.jsonl`.
+
+```bash
+keel cost               # total spend + per-model breakdown
+keel cost --breakdown   # daily chart
+```
+
+---
+
+## Team mode
+
+Share decision histories with teammates and find where your engineering principles diverge.
+
+```bash
+keel team export --output mine.json     # share with a teammate
+keel team add --name alice --file alice.json
+keel team conflicts --name alice        # where do you disagree?
+keel team persona                       # shared team philosophy
 ```
 
 ---
@@ -196,6 +283,7 @@ keel regret --score     # your score, trend, breakdown by domain
 |---|---|
 | Claude Code prompts | `UserPromptSubmit` hook in `~/.claude/settings.json` |
 | Git commits | Global `post-commit` hook (message + diff stat) |
+| GitHub PRs | `keel github fetch` — PR descriptions + review comments |
 | Gemini / ChatGPT / Aider / Cursor | Shell wrappers in `.zshrc` (fallback) |
 | Any OpenAI-compat tool | Local proxy on `localhost:4422` (preferred) |
 
@@ -221,14 +309,16 @@ Everything lives in `~/.keel/`:
 
 ```
 ~/.keel/
-├── decisions.db              SQLite — all decisions with project, paths, tags
+├── decisions.db              SQLite — all decisions with project, paths, tags, outcome quality
 ├── queue.jsonl               JSONL — raw captured events (append-only)
+├── usage.jsonl               JSONL — LLM token usage + cost per call
 ├── diffs/                    consistency diff sidecars per decision
 ├── persona.md                current synthesized developer identity
 ├── persona_meta.json         build timestamp + decision count
 ├── personas/                 dated snapshots: persona_YYYY-MM-DD.md
 ├── projects/                 per-project sync metadata JSON files
-├── config.json               provider / model / API keys
+├── team/                     imported teammate decision exports
+├── config.json               provider / model / API keys / github token
 ├── digests/                  weekly digest JSON files
 ├── proxy.pid                 proxy server PID (when running)
 └── com.keel.*.log            LaunchAgent stdout/stderr logs
@@ -242,9 +332,9 @@ No data leaves your machine unless you explicitly point keel at a cloud LLM.
 
 ```
 cli.py            Typer CLI — all commands
-llm.py            unified LLM client (Anthropic native + OpenAI-compat)
+llm.py            unified LLM client (Anthropic native + OpenAI-compat) + usage logging
 config.py         provider / model / key config
-store.py          SQLite decisions store (with project tracking)
+store.py          SQLite decisions store (with project, outcome quality tracking)
 queue_writer.py   hook script — lightweight, called on every prompt
 processor.py      queue processor + classifier + consistency checker
 analyzer.py       LLM analysis: principles, similarity, consistency diff
@@ -255,6 +345,10 @@ review.py         git diff cross-referenced against decision history
 adr.py            Architecture Decision Record generator (Nygard format)
 debt.py           tech debt classifier + scorer
 regret.py         Regret Minimization Score — deliberate vs accidental change
+quality.py        outcome quality correlation — which principles produce good results
+github.py         GitHub PR capture — fetch PR descriptions + review comments
+cost.py           token usage tracking + cost estimation per model
+team.py           team mode — export/import decisions, conflict detection, team persona
 profile.py        developer identity synthesizer + versioned snapshots
 inject.py         global persona injection (Claude Code / Gemini / OpenAI)
 projects.py       per-project context injection into repo CLAUDE.md files
