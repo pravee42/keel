@@ -946,9 +946,7 @@ def regret(
 
     \b
     Workflow:
-      keel regret --pending               # see what needs classifying
-      keel regret --growth <id> --note "learned X"
-      keel regret --regret <id> --note "forgot past reasoning"
+      keel regret --pending               # interactive review with AI suggestions
       keel regret --score                 # see your score + trend
       keel regret --narrative             # LLM analysis
     """
@@ -973,28 +971,78 @@ def regret(
             rprint(f"  [dim]Note: {note}[/dim]")
         return
 
-    # ── Pending ──
+    # ── Pending — interactive review ──
     if pending:
         items = regret_mod.get_pending()
         if not items:
             rprint("[green]Nothing pending — all flagged decisions are classified.[/green]")
             return
-        rprint(f"\n[bold]Unclassified inconsistencies[/bold]  [dim]({len(items)} pending)[/dim]\n")
-        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-        table.add_column("ID",     style="dim", width=10)
-        table.add_column("Date",   width=12)
-        table.add_column("Domain", width=10)
-        table.add_column("Title")
-        table.add_column("Inconsistency preview", width=45)
-        for d, diff_text in items:
-            preview = diff_text.replace("\n", " ")[:45]
-            table.add_row(d.id, d.timestamp[:10], d.domain, d.title, f"[dim]{preview}[/dim]")
-        console.print(table)
-        rprint(
-            "\n[dim]Classify with:[/dim]\n"
-            "  [bold]keel regret --growth <id> --note \"learned X\"[/bold]\n"
-            "  [bold]keel regret --regret <id> --note \"forgot past reasoning\"[/bold]"
-        )
+
+        rprint(f"\n[bold]Regret review[/bold]  [dim]{len(items)} unclassified[/dim]")
+        rprint("[dim]For each decision keel will suggest Growth or Regret. "
+               "Pick a suggestion, type your own note, or skip.[/dim]\n")
+
+        classified = 0
+        for idx, (d, diff_text) in enumerate(items, 1):
+            # Decision header
+            console.print(Panel(
+                f"[bold]{d.title}[/bold]\n"
+                f"[dim]{d.timestamp[:10]} · {d.domain}[/dim]\n\n"
+                f"[bold]Choice:[/bold] {d.choice[:150]}\n\n"
+                f"[bold]Flagged inconsistency:[/bold]\n"
+                f"[dim]{diff_text[:400].strip()}[/dim]",
+                title=f"[bold]{idx}/{len(items)}[/bold]  [{d.id}]",
+                border_style="yellow",
+            ))
+
+            # Fetch LLM suggestion
+            with console.status("[dim]Getting suggestion...[/dim]"):
+                suggestion = regret_mod.suggest_classification(d, diff_text)
+
+            rec   = suggestion.get("recommendation", "growth")
+            conf  = suggestion.get("confidence", 0.5)
+            g_why = suggestion.get("growth_reason", "")
+            r_why = suggestion.get("regret_reason", "")
+            rec_marker = lambda s: " [bold](suggested)[/bold]" if s == rec else ""
+
+            rprint(f"\n  [green][1] Growth[/green]{rec_marker('growth')}   {g_why}")
+            rprint(f"  [red][2] Regret[/red]{rec_marker('regret')}   {r_why}")
+            rprint(f"  [dim][s] Skip[/dim]\n")
+
+            raw = typer.prompt(
+                "  Choose [1/2/s] or type your own note",
+                default="s",
+                prompt_suffix=" → ",
+            ).strip()
+
+            if raw.lower() in ("s", "skip", ""):
+                rprint("  [dim]skipped[/dim]\n")
+                continue
+
+            # Resolve classification + note
+            if raw == "1":
+                is_growth, user_note = True, g_why
+            elif raw == "2":
+                is_growth, user_note = False, r_why
+            else:
+                # User typed a custom note — ask which bucket it belongs to
+                user_note = raw
+                bucket = typer.prompt(
+                    "  Growth or Regret? [g/r]",
+                    default=rec[0],
+                    prompt_suffix=" → ",
+                ).strip().lower()
+                is_growth = bucket.startswith("g")
+
+            regret_mod.classify(d.id, is_growth=is_growth, note=user_note)
+            label = "[green]↑ growth[/green]" if is_growth else "[red]✗ regret[/red]"
+            rprint(f"  {label}  [dim]{user_note[:80]}[/dim]\n")
+            classified += 1
+
+        rprint(f"[bold]Done.[/bold]  {classified} classified, "
+               f"{len(items) - classified} skipped.")
+        if classified:
+            rprint("[dim]Run keel regret --score to see your updated score.[/dim]")
         return
 
     # ── List classified ──

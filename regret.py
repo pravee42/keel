@@ -187,6 +187,53 @@ def get_score() -> dict:
 # LLM narrative
 # ─────────────────────────────────────────────
 
+_SUGGEST_PROMPT = """A developer's decision was flagged as inconsistent with their past reasoning.
+Analyze it and suggest whether this is GROWTH or REGRET.
+
+DECISION:
+Title: {title}
+Choice: {choice}
+Reasoning: {reasoning}
+
+FLAGGED INCONSISTENCY:
+{diff_text}
+
+Reply with ONLY valid JSON:
+{{
+  "growth_reason": "one sentence: why this looks like deliberate growth / learning",
+  "regret_reason": "one sentence: why this looks like accidental drift / forgetting",
+  "recommendation": "growth" or "regret",
+  "confidence": 0.0-1.0
+}}"""
+
+
+def suggest_classification(d: store.Decision, diff_text: str) -> dict:
+    """Ask LLM to suggest growth or regret with reasons for both."""
+    import json as _json
+    text = llm.complete([{"role": "user", "content": _SUGGEST_PROMPT.format(
+        title=d.title,
+        choice=d.choice[:200],
+        reasoning=d.reasoning[:300],
+        diff_text=diff_text[:800],
+    )}], max_tokens=300).strip()
+    try:
+        return _json.loads(text)
+    except Exception:
+        start = text.find("{")
+        if start != -1:
+            try:
+                obj, _ = _json.JSONDecoder().raw_decode(text, start)
+                return obj
+            except Exception:
+                pass
+    return {
+        "growth_reason": "You may have updated your thinking based on new context.",
+        "regret_reason": "You may have contradicted a past decision unintentionally.",
+        "recommendation": "growth",
+        "confidence": 0.5,
+    }
+
+
 _REPORT_PROMPT = """You are analyzing a developer's pattern of changing their mind.
 
 REGRET MINIMIZATION SCORE: {score:.0%}  ({growth} growth / {regret} regret out of {total} classified)
