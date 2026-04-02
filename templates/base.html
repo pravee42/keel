@@ -36,7 +36,9 @@
     }
 
     .nav-link {
-      display: flex;
+      display: flex !important;
+      width: 100%;
+      box-sizing: border-box;
       align-items: center;
       gap: 0.5rem;
       padding: 0.45rem 0.75rem;
@@ -45,7 +47,7 @@
       font-weight: 500;
       color: #94a3b8;
       text-decoration: none;
-      margin: 0.05rem 0;
+      margin: 0.1rem 0;
       transition: background 0.15s, color 0.15s;
     }
     .nav-link:hover { background: #334155; color: #f1f5f9; }
@@ -91,7 +93,7 @@
   </div>
 
   <!-- Nav -->
-  <nav style="flex:1;padding:0.5rem 0.5rem 1rem;">
+  <nav style="flex:1;padding:0.5rem 0.5rem 1rem;display:flex;flex-direction:column;">
 
     <p class="nav-section">Core</p>
     <a href="/"          class="nav-link {% if active=='dashboard' %}active{% endif %}">
