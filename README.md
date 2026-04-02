@@ -2,24 +2,30 @@
 
 > *git diff for your thinking.*
 
-Keel passively watches your AI coding sessions and git commits, extracts the decisions buried inside them, and learns your judgment style over time. When you're about to contradict your past self, it tells you. When enough decisions accumulate, it synthesizes a **developer identity document** — a memory clone of how you think — and injects it into Claude Code and Gemini so every AI session starts with a senior version of you sitting next to it.
+Keel passively watches your AI coding sessions and git commits, extracts the decisions buried inside them, and learns your judgment style over time. When you're about to contradict your past self, it tells you. When enough decisions accumulate, it synthesizes a **developer identity document** — a memory clone of how you think — and injects it into Claude Code and Gemini so every AI session starts with a senior version of you already loaded in.
+
+Each project gets its own context block, auto-maintained. You never have to touch it.
 
 ---
 
 ## How it works
 
 ```
-Claude Code prompt / git commit / gemini CLI call
-  → queue_writer.py   non-blocking hook, appends to ~/.keel/queue.jsonl
-  → processor.py      runs every 15 min via LaunchAgent (or: keel process)
+Claude Code prompt / git commit / gemini CLI call / any OpenAI-compat tool
+  → queue_writer.py     non-blocking hook, appends to ~/.keel/queue.jsonl
+  → processor.py        runs every 15 min via LaunchAgent (or: keel process)
       → classify: is this actually a decision?
       → extract: title, context, options, choice, reasoning, principles
+      → detect git root → stamp decision with project path
       → find similar past decisions
       → consistency diff → macOS notification if contradiction found
       → store in ~/.keel/decisions.db
-  → profile.py        runs daily at 7am via LaunchAgent
+      → sync project CLAUDE.md if new decisions since last sync
+  → profile.py          runs daily at 7am via LaunchAgent
       → synthesizes full decision history into persona.md
-  → inject.py         writes persona into ~/.claude/CLAUDE.md + Gemini
+      → snapshots versioned copy to ~/.keel/personas/
+  → inject.py           writes global persona into ~/.claude/CLAUDE.md + Gemini
+  → projects.py         writes per-project context into {repo}/CLAUDE.md
 ```
 
 ---
@@ -42,7 +48,7 @@ keel config key anthropic <your-key>
 keel config test
 ```
 
-That's it. Keel now watches every Claude Code prompt and git commit in the background.
+That's it. Keel now watches every Claude Code prompt and git commit in the background, and keeps every project's `CLAUDE.md` up to date automatically.
 
 ---
 
@@ -54,12 +60,37 @@ keel ls                        # list all tracked decisions
 keel show <id>                 # full detail on one decision
 keel process                   # process queue manually (normally auto)
 keel queue                     # inspect raw captured events
+keel remove <id>               # delete a misclassified decision
+keel correct <id>              # interactively fix a poorly extracted decision
+```
+
+### Per-project injection
+```bash
+keel sync                      # sync current git repo's CLAUDE.md
+keel sync --all                # sync all known projects
+keel sync --force              # regenerate even if not stale
+keel projects                  # list all projects with decision counts + sync status
+keel projects --sync           # list and sync all
+keel projects --remove <path>  # strip keel block from a project's CLAUDE.md
+```
+
+### Memory clone (global persona)
+```bash
+keel profile --build           # synthesize developer identity from all history
+keel profile --show            # print current persona
+keel profile --status          # staleness + decisions since last build
+keel profile --versions        # list dated persona snapshots
+keel profile --diff            # LLM analysis: how your thinking changed
+keel profile --from 2025-11 --to 2026-01  # diff specific versions
+keel inject                    # push persona into Claude Code + Gemini + OpenAI
+keel inject --status           # which tools have persona injected
+keel inject --remove           # strip persona from all tools
 ```
 
 ### Analysis
 ```bash
-keel patterns                  # your recurring judgment patterns
-keel diff <id1> <id2>          # explicit reasoning diff between two decisions
+keel patterns                  # recurring judgment patterns
+keel diff <id1> <id2>          # reasoning diff between two decisions
 keel correlate                 # decision quality by time-of-day / day-of-week
 keel correlate --narrative     # LLM-written mood analysis
 keel weekly                    # weekly thinking digest
@@ -67,29 +98,42 @@ keel debt                      # tech debt: decisions made under pressure
 keel debt --narrative          # prioritized LLM analysis
 ```
 
+### Regret minimization
+```bash
+keel regret --pending          # decisions flagged as contradictions, awaiting classification
+keel regret --growth <id> --note "learned X"     # mark as deliberate reversal
+keel regret --regret <id> --note "forgot past reasoning"  # mark as accidental drift
+keel regret --score            # your Regret Minimization Score + trend
+keel regret --list             # all classified decisions
+keel regret --narrative        # LLM analysis of your change-of-mind pattern
+```
+
 ### Pre-commit / pre-PR
 ```bash
-keel check --title "..." --context "..." --reasoning "..."   # check before deciding
+keel check --title "..." --context "..." --reasoning "..."
 keel review                    # review current git diff against your history
 keel adr <id>                  # generate Architecture Decision Record
 keel adr --auto                # generate ADRs for all arch decisions at once
 ```
 
-### Memory clone
+### Local proxy (replaces shell wrappers)
 ```bash
-keel profile --build           # synthesize developer identity from history
-keel profile --show            # print current persona
-keel profile --status          # staleness + new decisions since last build
-keel inject                    # push persona into Claude Code + Gemini
-keel inject --status           # check which tools have persona injected
-keel inject --remove           # strip persona from all tools
+keel proxy start               # start logging proxy on localhost:4422
+keel proxy install             # install as always-on LaunchAgent
+keel proxy status              # is it running?
+keel proxy stop
+
+# Point any OpenAI-compatible tool at it:
+export OPENAI_BASE_URL=http://localhost:4422/v1
+aider --openai-api-base http://localhost:4422/v1
 ```
 
 ### Background services
 ```bash
-keel service status            # are LaunchAgents running?
-keel service install           # register/re-register agents
-keel service trigger           # kick off queue processor now
+keel service install           # register all LaunchAgents
+keel service status            # running / stopped per agent
+keel service trigger           # kick off collector now
+keel service uninstall         # remove all agents
 ```
 
 ### Config
@@ -103,27 +147,71 @@ keel config test               # ping the API
 
 ---
 
-## Supported LLM providers
+## Per-project injection
 
-| Provider | Flag | Default model |
-|---|---|---|
-| Anthropic | `anthropic` | claude-opus-4-6 |
-| OpenAI | `openai` | gpt-4o |
-| OpenRouter | `openrouter` | anthropic/claude-opus-4-6 |
-| Gemini | `gemini` | gemini-1.5-pro |
-| Mistral | `mistral` | mistral-large-latest |
+Every git repository you work in gets its own compact context block injected into `{repo}/CLAUDE.md`. Claude Code reads it at session start.
 
-Anthropic uses adaptive thinking (`thinking: {type: "adaptive"}`) for richer analysis. All others use the OpenAI SDK with `base_url` override.
+**What lands in each project:**
+
+```markdown
+<!-- keel:project:start -->
+<!-- auto-generated by keel · 2026-04-01 08:30 UTC · do not edit this block -->
+## Project Decisions (myapp)
+
+- **SQLite over Postgres**: zero-dependency deployment; acceptable until multi-user scale
+- **No ORM**: direct sqlite3; rejected in 4 projects — abstraction cost exceeds benefit
+
+## Active Constraints
+
+- JWT auth is a temporary compromise — session store deferred (tagged 2024-03)
+
+## Cross-Project Principles
+
+- Explicit over implicit in all dependency wiring (consistent across 6 projects)
+<!-- keel:project:end -->
+```
+
+Content is kept to ~500–800 tokens. Re-injected automatically after each decision is saved for that project. The block uses distinct markers from the global persona so both can coexist in the same file.
+
+---
+
+## Regret Minimization Score
+
+For every contradiction keel flags, you classify it:
+- **Growth** — deliberate reversal, you learned something, context changed
+- **Regret** — accidental drift, you forgot past reasoning
+
+Over time this builds a score (0–100%) showing how often you change your mind on purpose vs. by accident. High score = you're learning. Low score = you're drifting.
+
+```bash
+keel regret --pending   # see what needs classifying
+keel regret --score     # your score, trend, breakdown by domain
+```
 
 ---
 
 ## What gets captured
 
-- **Claude Code prompts** — via `UserPromptSubmit` hook in `~/.claude/settings.json`
-- **Git commits** — via global `post-commit` hook (reads commit message + diff stat)
-- **Gemini / ChatGPT / Aider / Cursor** — via shell function wrappers in `.zshrc`
+| Source | Mechanism |
+|---|---|
+| Claude Code prompts | `UserPromptSubmit` hook in `~/.claude/settings.json` |
+| Git commits | Global `post-commit` hook (message + diff stat) |
+| Gemini / ChatGPT / Aider / Cursor | Shell wrappers in `.zshrc` (fallback) |
+| Any OpenAI-compat tool | Local proxy on `localhost:4422` (preferred) |
 
-Only events that look like real decisions (architectural choices, tradeoffs, tech selections) are stored. Classification runs through your configured LLM — noise is dropped silently.
+Only events that look like real decisions are stored. The classifier runs every event through your configured LLM — noise is dropped silently.
+
+---
+
+## Background services
+
+Three LaunchAgents run automatically after `keel service install`:
+
+| Agent | Schedule | What it does |
+|---|---|---|
+| `com.keel.collector` | Every 15 min | Process queue, extract decisions, sync stale projects |
+| `com.keel.profile` | Daily at 7am | Rebuild persona, snapshot versioned copy, inject globally |
+| `com.keel.sync` | Every 6 hours | Sync all project CLAUDE.md files (backstop for cross-project changes) |
 
 ---
 
@@ -133,13 +221,17 @@ Everything lives in `~/.keel/`:
 
 ```
 ~/.keel/
-├── decisions.db          SQLite — structured decisions
-├── queue.jsonl           JSONL — raw captured events (append-only)
-├── persona.md            your synthesized developer identity
-├── persona_meta.json     build timestamp + decision count
-├── config.json           provider / model / API keys
-├── digests/              weekly digest JSON files
-└── com.keel.*.log        LaunchAgent stdout/stderr logs
+├── decisions.db              SQLite — all decisions with project, paths, tags
+├── queue.jsonl               JSONL — raw captured events (append-only)
+├── diffs/                    consistency diff sidecars per decision
+├── persona.md                current synthesized developer identity
+├── persona_meta.json         build timestamp + decision count
+├── personas/                 dated snapshots: persona_YYYY-MM-DD.md
+├── projects/                 per-project sync metadata JSON files
+├── config.json               provider / model / API keys
+├── digests/                  weekly digest JSON files
+├── proxy.pid                 proxy server PID (when running)
+└── com.keel.*.log            LaunchAgent stdout/stderr logs
 ```
 
 No data leaves your machine unless you explicitly point keel at a cloud LLM.
@@ -149,11 +241,11 @@ No data leaves your machine unless you explicitly point keel at a cloud LLM.
 ## Architecture
 
 ```
-cli.py            Typer CLI entry point
+cli.py            Typer CLI — all commands
 llm.py            unified LLM client (Anthropic native + OpenAI-compat)
-config.py         provider/model/key config
-store.py          SQLite decisions store
-queue_writer.py   hook script — must stay lightweight, called on every prompt
+config.py         provider / model / key config
+store.py          SQLite decisions store (with project tracking)
+queue_writer.py   hook script — lightweight, called on every prompt
 processor.py      queue processor + classifier + consistency checker
 analyzer.py       LLM analysis: principles, similarity, consistency diff
 digest.py         weekly digest: categorize + narrative
@@ -162,8 +254,11 @@ context.py        personalized system prompt generator
 review.py         git diff cross-referenced against decision history
 adr.py            Architecture Decision Record generator (Nygard format)
 debt.py           tech debt classifier + scorer
-profile.py        developer identity synthesizer (memory clone)
-inject.py         persona injection into Claude Code / Gemini / OpenAI
+regret.py         Regret Minimization Score — deliberate vs accidental change
+profile.py        developer identity synthesizer + versioned snapshots
+inject.py         global persona injection (Claude Code / Gemini / OpenAI)
+projects.py       per-project context injection into repo CLAUDE.md files
+proxy.py          local OpenAI-compatible logging proxy (stdlib only)
 service.py        macOS LaunchAgent setup via plistlib
 install.py        one-shot hook installer
 ```
@@ -172,4 +267,4 @@ install.py        one-shot hook installer
 
 ## Why "keel"?
 
-A keel is what keeps a ship stable and on course. Keel does the same for your reasoning — it's the thing running underneath everything, making sure you don't drift from your own principles without realizing it.
+A keel is what keeps a ship stable and on course. Keel does the same for your reasoning — it's the thing running underneath everything, making sure you don't drift from your own principles without noticing.
