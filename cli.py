@@ -31,6 +31,10 @@ import service as service_mod
 import regret as regret_mod
 import proxy as proxy_mod
 import projects as projects_mod
+import github as github_mod
+import cost as cost_mod
+import quality as quality_mod
+import team as team_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -1522,6 +1526,429 @@ def config_test():
     else:
         rprint(f"[red]✗ Failed[/red]\n{result}")
         raise typer.Exit(1)
+
+
+# ─────────────────────────────────────────────
+# Feature 9: GitHub PR capture
+# ─────────────────────────────────────────────
+
+@app.command("github")
+def github_cmd(
+    action: str = typer.Argument("fetch", help="Action: fetch | config | detect"),
+    repo: Optional[str] = typer.Option(None, "--repo", "-r",
+                                       help="GitHub repo (owner/repo). Auto-detected if omitted."),
+    since: int = typer.Option(30, "--since", "-d", help="Fetch PRs updated within last N days"),
+    pr_number: Optional[int] = typer.Option(None, "--pr", help="Fetch a single PR by number"),
+    process: bool = typer.Option(False, "--process", "-p",
+                                 help="Run keel process immediately after fetching"),
+    token: Optional[str] = typer.Option(None, "--token", help="GitHub token (or set via GITHUB_TOKEN)"),
+):
+    """Capture GitHub PR descriptions and review comments into your decision history.
+
+    \b
+    Setup:
+      keel github config --token ghp_xxx       # store your GitHub token
+      keel github fetch                        # fetch PRs from current repo
+      keel github fetch --repo owner/repo      # specific repo
+      keel github fetch --process              # fetch and run processor immediately
+    """
+    if action == "config":
+        if token:
+            github_mod.set_token(token)
+            rprint(f"[green]✓ GitHub token saved[/green]  ({token[:10]}...)")
+        else:
+            tok = github_mod.get_token()
+            if tok:
+                rprint(f"GitHub token: [green]set[/green]  ({tok[:10]}...)")
+            else:
+                rprint("[yellow]No GitHub token set.[/yellow]")
+                rprint("  Run: [bold]keel github config --token ghp_...[/bold]")
+                rprint("  Or set env: [dim]export GITHUB_TOKEN=ghp_...[/dim]")
+        return
+
+    if action == "detect":
+        detected = github_mod.detect_repo()
+        if detected:
+            rprint(f"[green]Detected repo:[/green] {detected}")
+        else:
+            rprint("[yellow]Could not detect GitHub repo from git remote origin.[/yellow]")
+            rprint("[dim]Make sure you're in a git repo with a GitHub remote.[/dim]")
+        return
+
+    # ── fetch ──
+    target_repo = repo or github_mod.detect_repo()
+    if not target_repo:
+        rprint("[red]Could not detect repo. Use --repo owner/repo[/red]")
+        raise typer.Exit(1)
+
+    tok = token or github_mod.get_token()
+    if not tok:
+        rprint("[yellow]⚠ No GitHub token — requests may be rate-limited.[/yellow]")
+        rprint("[dim]Set one with: keel github config --token ghp_...[/dim]")
+
+    rprint(f"[bold]Fetching PRs[/bold] from [cyan]{target_repo}[/cyan]"
+           f"  (last {since} days{f' · PR #{pr_number}' if pr_number else ''})")
+
+    try:
+        with console.status("Fetching from GitHub API..."):
+            count = github_mod.fetch_and_queue(
+                repo=target_repo, since_days=since,
+                pr_number=pr_number, token=tok,
+            )
+    except RuntimeError as e:
+        rprint(f"[red]GitHub API error:[/red] {e}")
+        raise typer.Exit(1)
+
+    if count == 0:
+        rprint("[dim]No new PRs found (all already captured or no description).[/dim]")
+        return
+
+    rprint(f"[green]✓ {count} PR(s) queued[/green]")
+
+    if process:
+        rprint()
+        proc.process_queue(verbose=True)
+    else:
+        rprint(f"[dim]Run [bold]keel process[/bold] to extract decisions from them.[/dim]")
+
+
+# ─────────────────────────────────────────────
+# Feature 10: Token cost visibility
+# ─────────────────────────────────────────────
+
+@app.command("cost")
+def cost_cmd(
+    since: int = typer.Option(30, "--since", "-d", help="Show usage from last N days"),
+    breakdown: bool = typer.Option(False, "--breakdown", "-b", help="Show per-day breakdown"),
+    reset: bool = typer.Option(False, "--reset", help="Clear the usage log"),
+):
+    """Show how much keel's LLM calls are costing you.
+
+    \b
+    keel cost              # last 30 days summary
+    keel cost --since 7    # last 7 days
+    keel cost --breakdown  # per-day spending chart
+    """
+    if reset:
+        if cost_mod.USAGE_LOG.exists():
+            typer.confirm("Clear the entire usage log?", abort=True)
+            cost_mod.USAGE_LOG.unlink()
+            rprint("[green]✓ Usage log cleared[/green]")
+        else:
+            rprint("[dim]No usage log to clear.[/dim]")
+        return
+
+    data = cost_mod.get_summary(since_days=since)
+
+    if not data["records"]:
+        rprint(f"[dim]No usage recorded in the last {since} days.[/dim]")
+        rprint("[dim](Usage is logged automatically after keel makes LLM calls)[/dim]")
+        return
+
+    # ── Summary ──
+    rprint(f"\n[bold]LLM cost[/bold]  [dim]last {since} days[/dim]\n")
+
+    stat_table = Table(show_header=False, box=None, padding=(0, 2))
+    stat_table.add_column(style="dim", width=20)
+    stat_table.add_column(style="bold")
+    stat_table.add_row("Total calls",    str(len(data["records"])))
+    stat_table.add_row("Input tokens",   f"{data['total_input']:,}")
+    stat_table.add_row("Output tokens",  f"{data['total_output']:,}")
+    total_cost = data["total_cost"]
+    cost_color = "green" if total_cost < 0.50 else ("yellow" if total_cost < 2.0 else "red")
+    stat_table.add_row("Estimated cost", f"[{cost_color}]${total_cost:.4f}[/{cost_color}]")
+    console.print(stat_table)
+
+    # ── Per-model breakdown ──
+    if data["by_model"]:
+        rprint("\n[bold]By model[/bold]")
+        model_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        model_table.add_column("Model")
+        model_table.add_column("Calls",  justify="right", width=8)
+        model_table.add_column("Input",  justify="right", width=12)
+        model_table.add_column("Output", justify="right", width=12)
+        model_table.add_column("Cost",   justify="right", width=10)
+        for model, v in sorted(data["by_model"].items(),
+                               key=lambda x: x[1]["cost"], reverse=True):
+            model_table.add_row(
+                model,
+                str(v["calls"]),
+                f"{v['input']:,}",
+                f"{v['output']:,}",
+                f"${v['cost']:.4f}",
+            )
+        console.print(model_table)
+
+    # ── Per-day chart ──
+    if breakdown and data["by_day"]:
+        rprint("\n[bold]Daily spend[/bold]")
+        max_cost = max(v["cost"] for v in data["by_day"].values()) or 0.001
+        for day, v in data["by_day"].items():
+            bar_len = int((v["cost"] / max_cost) * 30)
+            bar = "█" * bar_len
+            cost_color = "green" if v["cost"] < 0.05 else ("yellow" if v["cost"] < 0.20 else "red")
+            rprint(f"  [dim]{day}[/dim]  [{cost_color}]{bar}[/{cost_color}]  "
+                   f"[dim]${v['cost']:.4f}  {v['calls']} calls[/dim]")
+
+
+# ─────────────────────────────────────────────
+# Feature 11: Decision quality correlation
+# ─────────────────────────────────────────────
+
+@app.command("quality")
+def quality_cmd(
+    decision_id: Optional[str] = typer.Argument(None,
+                                                  help="Rate the outcome quality of a specific decision"),
+    rating: Optional[str] = typer.Option(None, "--rating", "-r",
+                                          help="good | neutral | bad"),
+    stats: bool = typer.Option(False, "--stats", "-s",
+                               help="Show principle quality correlation table"),
+    narrative: bool = typer.Option(False, "--narrative", "-n",
+                                    help="LLM analysis of which principles produce good outcomes"),
+):
+    """Correlate your principles with decision outcomes.
+
+    \b
+    Workflow:
+      keel outcome <id> --text "..."          # record what happened
+      keel quality <id> --rating good        # rate the outcome quality
+      keel quality --stats                   # see which principles correlate with good outcomes
+      keel quality --narrative               # LLM analysis
+    """
+    from rich.markdown import Markdown
+
+    # ── Rate a specific decision ──
+    if decision_id:
+        d = store.get_by_id(decision_id)
+        if not d:
+            rprint(f"[red]Decision {decision_id} not found.[/red]")
+            raise typer.Exit(1)
+
+        if not d.outcome:
+            rprint(f"[yellow]No outcome recorded for [{decision_id}].[/yellow]")
+            rprint(f"  First record the outcome: [bold]keel outcome {decision_id} --text \"..\"[/bold]")
+            raise typer.Exit(1)
+
+        valid = quality_mod.VALID_QUALITIES
+        if not rating:
+            rprint(f"\n[bold]{d.title}[/bold]  [{decision_id}]")
+            rprint(f"[dim]Outcome: {d.outcome[:120]}[/dim]\n")
+            rating = typer.prompt(
+                f"  Rate this outcome [{'/'.join(valid)}]",
+                prompt_suffix=" → ",
+            ).strip().lower()
+
+        if rating not in valid:
+            rprint(f"[red]Rating must be one of: {', '.join(valid)}[/red]")
+            raise typer.Exit(1)
+
+        store.update_outcome_quality(decision_id, rating)
+        color = "green" if rating == "good" else ("red" if rating == "bad" else "yellow")
+        rprint(f"[{color}]✓ [{decision_id}] rated as {rating}[/{color}]")
+        rprint("[dim]keel quality --stats to see how this affects your principle correlations.[/dim]")
+        return
+
+    # ── Stats table ──
+    if stats or (not narrative):
+        decisions = store.get_with_outcomes()
+        if not decisions:
+            rprint("[dim]No rated outcomes yet.[/dim]")
+            rprint("  1. Record an outcome: [bold]keel outcome <id> --text \"..\"[/bold]")
+            rprint("  2. Rate it:           [bold]keel quality <id> --rating good[/bold]")
+            raise typer.Exit(0)
+
+        qs = quality_mod.quick_stats(decisions)
+        rprint(f"\n[bold]Outcome quality[/bold]  [dim]{qs['total']} rated[/dim]\n")
+
+        overview = Table(show_header=False, box=None, padding=(0, 2))
+        overview.add_column(style="dim", width=18)
+        overview.add_column(style="bold")
+        overview.add_row("Good outcomes",    f"[green]{qs['good']}[/green]")
+        overview.add_row("Neutral outcomes", f"[dim]{qs['neutral']}[/dim]")
+        overview.add_row("Bad outcomes",     f"[red]{qs['bad']}[/red]")
+        if qs["rate"] is not None:
+            rate_color = "green" if qs["rate"] >= 0.6 else ("yellow" if qs["rate"] >= 0.4 else "red")
+            overview.add_row("Good rate", f"[{rate_color}]{qs['rate']:.0%}[/{rate_color}]")
+        console.print(overview)
+
+        principle_stats = quality_mod.get_principle_stats()
+        if principle_stats:
+            rprint("\n[bold]Principle quality correlation[/bold]"
+                   "  [dim](principles ranked by frequency in outcomes)[/dim]\n")
+            p_table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+            p_table.add_column("Principle")
+            p_table.add_column("Good",    justify="right", width=6)
+            p_table.add_column("Neutral", justify="right", width=8)
+            p_table.add_column("Bad",     justify="right", width=6)
+            p_table.add_column("Signal",  width=14)
+            for principle, v in list(principle_stats.items())[:15]:
+                total = v["total"]
+                if total == 0:
+                    continue
+                good_rate = v["good"] / total
+                signal_color = "green" if good_rate >= 0.6 else ("red" if good_rate < 0.3 else "yellow")
+                signal = "reliable" if good_rate >= 0.6 else ("risky" if good_rate < 0.3 else "mixed")
+                p_table.add_row(
+                    principle[:55],
+                    f"[green]{v['good']}[/green]",
+                    f"[dim]{v['neutral']}[/dim]",
+                    f"[red]{v['bad']}[/red]",
+                    f"[{signal_color}]{signal}[/{signal_color}]",
+                )
+            console.print(p_table)
+
+    if narrative:
+        rprint()
+        with console.status("Analyzing outcome patterns..."):
+            report = quality_mod.generate_quality_report()
+        if report is None:
+            rprint("[yellow]Need at least 3 rated outcomes for analysis.[/yellow]")
+            raise typer.Exit(0)
+        console.print(Panel(
+            Markdown(report),
+            title="[bold]Principle Quality Analysis[/bold]",
+            border_style="green",
+        ))
+    elif not decision_id and not stats:
+        rprint(f"\n[dim]Add --narrative for LLM analysis of your principle patterns.[/dim]")
+
+
+# ─────────────────────────────────────────────
+# Feature 12: Team mode
+# ─────────────────────────────────────────────
+
+@app.command("team")
+def team_cmd(
+    action: str = typer.Argument("list",
+                                  help="Action: list | export | add | remove | conflicts | persona"),
+    name: Optional[str] = typer.Option(None, "--name", "-n", help="Team member name"),
+    file: Optional[str] = typer.Option(None, "--file", "-f",
+                                        help="Path to exported decisions JSON"),
+    output: Optional[str] = typer.Option(None, "--output", "-o",
+                                          help="Output file for export (default: stdout)"),
+    limit: int = typer.Option(0, "--limit", help="Max decisions to export (0 = all)"),
+):
+    """Share decisions with teammates and detect principle conflicts.
+
+    \b
+    Workflow:
+      keel team export --output my_decisions.json    # export your decisions
+      # share the file with a teammate
+      keel team add --name alice --file alice.json   # import their decisions
+      keel team conflicts --name alice               # see where you disagree
+      keel team persona                              # build a shared team philosophy
+
+    \b
+    Actions:
+      list        List imported team members
+      export      Export your decisions to JSON
+      add         Import a teammate's decision export
+      remove      Remove a team member's data
+      conflicts   LLM analysis of principle conflicts with a member
+      persona     Generate a shared team engineering philosophy
+    """
+    from rich.markdown import Markdown
+
+    # ── list ──
+    if action == "list":
+        members = team_mod.list_members()
+        if not members:
+            rprint("[dim]No team members yet.[/dim]")
+            rprint("  Export yours:   [bold]keel team export --output mine.json[/bold]")
+            rprint("  Add a member:   [bold]keel team add --name alice --file alice.json[/bold]")
+            return
+        rprint(f"\n[bold]Team members[/bold]  [dim]{len(members)} imported[/dim]\n")
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Name",       width=20)
+        table.add_column("Decisions",  justify="right", width=12)
+        table.add_column("Imported",   width=14)
+        for m in members:
+            table.add_row(m["name"], str(m["count"]), m["imported_at"])
+        console.print(table)
+        rprint(f"\n[dim]keel team conflicts --name <member>   to see where you disagree[/dim]")
+        return
+
+    # ── export ──
+    if action == "export":
+        with console.status("Exporting decisions..."):
+            data = team_mod.export_decisions(limit=limit)
+        if output:
+            from pathlib import Path as _Path
+            _Path(output).write_text(data)
+            decisions = store.get_all()
+            count = len(decisions[:limit]) if limit else len(decisions)
+            rprint(f"[green]✓ {count} decisions exported → {output}[/green]")
+            rprint("[dim]Share this file with your teammate. They run:[/dim]")
+            rprint(f"[dim]  keel team add --name yourname --file {output}[/dim]")
+        else:
+            rprint(data)
+        return
+
+    # ── add ──
+    if action == "add":
+        if not name:
+            rprint("[red]--name required for add[/red]")
+            raise typer.Exit(1)
+        if not file:
+            rprint("[red]--file required for add[/red]")
+            raise typer.Exit(1)
+        count = team_mod.import_member(name, file)
+        rprint(f"[green]✓ Imported {count} decisions from {name}[/green]")
+        rprint(f"[dim]keel team conflicts --name {name}   to see conflicts[/dim]")
+        return
+
+    # ── remove ──
+    if action == "remove":
+        if not name:
+            rprint("[red]--name required for remove[/red]")
+            raise typer.Exit(1)
+        if team_mod.remove_member(name):
+            rprint(f"[green]✓ Removed {name}[/green]")
+        else:
+            rprint(f"[red]Member '{name}' not found.[/red]")
+        return
+
+    # ── conflicts ──
+    if action == "conflicts":
+        if not name:
+            rprint("[red]--name required for conflicts[/red]")
+            raise typer.Exit(1)
+        with console.status(f"Comparing your principles with {name}'s..."):
+            result = team_mod.find_conflicts(name)
+        if result is None:
+            rprint(f"[yellow]No data for '{name}'. Did you run: keel team add --name {name}?[/yellow]")
+            raise typer.Exit(1)
+        console.print(Panel(
+            Markdown(result),
+            title=f"[bold]Principle conflicts: you vs {name}[/bold]",
+            border_style="red",
+        ))
+        return
+
+    # ── persona ──
+    if action == "persona":
+        members = team_mod.list_members()
+        if not members:
+            rprint("[yellow]No team members imported yet.[/yellow]")
+            rprint("  Add one with: [bold]keel team add --name alice --file alice.json[/bold]")
+            raise typer.Exit(1)
+        rprint(f"[bold]Building team persona[/bold]  "
+               f"[dim]{len(members)} member(s) + you[/dim]")
+        with console.status("Synthesizing team philosophy..."):
+            result = team_mod.build_team_persona()
+        if result is None:
+            rprint("[yellow]Not enough data to build team persona.[/yellow]")
+            raise typer.Exit(0)
+        console.print(Panel(
+            Markdown(result),
+            title="[bold]Team Engineering Philosophy[/bold]",
+            border_style="cyan",
+        ))
+        return
+
+    rprint(f"[red]Unknown action: {action}[/red]")
+    rprint("Valid: list | export | add | remove | conflicts | persona")
+    raise typer.Exit(1)
 
 
 if __name__ == "__main__":

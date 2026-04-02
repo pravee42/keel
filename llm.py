@@ -40,6 +40,12 @@ def _anthropic_complete(messages: list[dict], max_tokens: int) -> str:
         kwargs["system"] = system
 
     response = client.messages.create(**kwargs)
+    try:
+        import cost as cost_mod
+        cost_mod.log_usage(cfg.get_model(), "anthropic",
+                           response.usage.input_tokens, response.usage.output_tokens)
+    except Exception:
+        pass
     return response.content[0].text
 
 
@@ -60,6 +66,12 @@ def _anthropic_stream(messages: list[dict], max_tokens: int) -> str:
 
     with client.messages.stream(**kwargs) as stream:
         msg = stream.get_final_message()
+        try:
+            import cost as cost_mod
+            cost_mod.log_usage(cfg.get_model(), "anthropic",
+                               msg.usage.input_tokens, msg.usage.output_tokens)
+        except Exception:
+            pass
         return next(b.text for b in reversed(msg.content) if b.type == "text")
 
 
@@ -93,6 +105,14 @@ def _openai_compat_complete(provider: str, messages: list[dict], max_tokens: int
         messages=messages,
         max_tokens=max_tokens,
     )
+    try:
+        import cost as cost_mod
+        if response.usage:
+            cost_mod.log_usage(cfg.get_model(), provider,
+                               response.usage.prompt_tokens,
+                               response.usage.completion_tokens)
+    except Exception:
+        pass
     return response.choices[0].message.content
 
 

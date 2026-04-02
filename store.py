@@ -21,11 +21,12 @@ class Decision:
     options: str      # alternatives considered
     choice: str       # what you decided
     reasoning: str    # why
-    principles: str   # JSON list — extracted by LLM
-    outcome: str      # filled in later
-    tags: str         # JSON list — pressure | uncertainty | compromise | temporary | arch
-    paths: str        # JSON list — file/module paths this decision touches
-    project: str      # absolute git root path, or '' if unknown
+    principles: str      # JSON list — extracted by LLM
+    outcome: str         # filled in later
+    tags: str            # JSON list — pressure | uncertainty | compromise | temporary | arch
+    paths: str           # JSON list — file/module paths this decision touches
+    project: str         # absolute git root path, or '' if unknown
+    outcome_quality: str = ""  # good | neutral | bad | '' (unset)
 
 
 def _connect() -> sqlite3.Connection:
@@ -62,15 +63,17 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE decisions ADD COLUMN paths TEXT NOT NULL DEFAULT '[]'")
     if "project" not in existing:
         conn.execute("ALTER TABLE decisions ADD COLUMN project TEXT NOT NULL DEFAULT ''")
+    if "outcome_quality" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN outcome_quality TEXT NOT NULL DEFAULT ''")
 
 
 def save(d: Decision) -> None:
     conn = _connect()
     conn.execute(
-        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (d.id, d.timestamp, d.domain, d.title, d.context,
          d.options, d.choice, d.reasoning, d.principles, d.outcome,
-         d.tags, d.paths, d.project),
+         d.tags, d.paths, d.project, d.outcome_quality),
     )
     conn.commit()
 
@@ -144,6 +147,24 @@ def update_outcome(decision_id: str, outcome: str) -> None:
     conn.commit()
 
 
+def update_outcome_quality(decision_id: str, quality: str) -> None:
+    """Set quality rating: good | neutral | bad"""
+    conn = _connect()
+    conn.execute("UPDATE decisions SET outcome_quality = ? WHERE id = ?",
+                 (quality, decision_id))
+    conn.commit()
+
+
+def get_with_outcomes() -> list:
+    """Return decisions that have both outcome text and quality rating."""
+    conn = _connect()
+    rows = conn.execute(
+        "SELECT * FROM decisions WHERE outcome != '' AND outcome_quality != '' "
+        "ORDER BY timestamp DESC"
+    ).fetchall()
+    return [_row_to_decision(r) for r in rows]
+
+
 def update_principles(decision_id: str, principles: list) -> None:
     conn = _connect()
     conn.execute("UPDATE decisions SET principles = ? WHERE id = ?",
@@ -189,6 +210,7 @@ def _row_to_decision(row) -> Decision:
     d.setdefault("tags", "[]")
     d.setdefault("paths", "[]")
     d.setdefault("project", "")
+    d.setdefault("outcome_quality", "")
     return Decision(**d)
 
 
