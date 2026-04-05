@@ -55,7 +55,7 @@ def main():
         "source": args.source,
         "type": args.type,
         "cwd": args.cwd,
-        "text": args.text,
+        "text": args.text or prompt,
         "prompt": prompt,
         "output": output,
         "processed": False,

@@ -130,8 +130,9 @@ gemini() {{
   output=$(command gemini "$@")
   local exit_code=$?
   
-  # Send to keel queue
-  local payload="User: $cmd\nAssistant:\n$output"
+  # Send to keel queue (using printf for real newlines)
+  local payload
+  payload=$(printf "User: %s\nAssistant:\n%s" "$cmd" "$output")
   echo "$payload" | {PYTHON} {QUEUE_WRITER} --source gemini --type prompt --cwd "$(pwd)" 2>/dev/null &
   
   echo "$output"
