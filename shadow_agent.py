@@ -4,8 +4,8 @@ import json
 import llm
 from typing import Dict
 
-def analyze_mention(message: str, persona_context: str) -> Dict:
-    """Analyze a mention using the developer's persona.
+def analyze_mention(message: str, persona_context: str, style_guide: str = "") -> Dict:
+    """Analyze a mention using the developer's persona and style guide.
     
     Returns a dict:
     {
@@ -18,11 +18,16 @@ def analyze_mention(message: str, persona_context: str) -> Dict:
     if not message.strip() or not persona_context.strip():
         return {"confidence": 0, "action": "ignore", "response_text": "", "reasoning": "Empty input"}
 
+    style_instruction = f"Match this style: {style_guide}" if style_guide else "Match the developer's natural tone."
+
     prompt = f"""You are a 'Shadow Clone' of a senior developer. 
 Your goal is to handle a request addressed to the developer, but ONLY if you are 100% sure you can perfectly match their technical logic and tone.
 
 DEVELOPER PERSONA:
 {persona_context}
+
+STYLE GUIDE:
+{style_instruction}
 
 REQUEST MESSAGE:
 {message}

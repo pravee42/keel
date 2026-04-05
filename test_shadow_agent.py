@@ -6,6 +6,7 @@ import json
 def test_high_certainty_filter_reply():
     message = "How do we handle auth in this project?"
     persona = "The developer always prefers JWT for internal services and OAuth2 for public ones."
+    style_guide = "Concise and direct."
     
     mock_response = json.dumps({
         "confidence": 100,
@@ -14,10 +15,11 @@ def test_high_certainty_filter_reply():
     })
     
     with patch('llm.complete', return_value=mock_response) as mock_llm:
-        response = shadow_agent.analyze_mention(message, persona)
+        response = shadow_agent.analyze_mention(message, persona, style_guide)
         assert response["confidence"] == 100
         assert response["action"] == "reply"
         assert "JWT" in response["response_text"]
+        mock_llm.assert_called_once()
 
 def test_low_confidence_ignore():
     message = "What's the meaning of life?"
@@ -35,6 +37,11 @@ def test_low_confidence_ignore():
         assert response["action"] == "ignore"
 
 if __name__ == "__main__":
-    test_high_certainty_filter_reply()
-    test_low_confidence_ignore()
-    print("Test Passed")
+    try:
+        test_high_certainty_filter_reply()
+        test_low_confidence_ignore()
+        print("Test Passed")
+    except Exception as e:
+        print(f"Test Failed: {e}")
+        import traceback
+        traceback.print_exc()
