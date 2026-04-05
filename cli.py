@@ -2,6 +2,7 @@
 """keel — git diff for your thinking."""
 
 import json
+import os
 import subprocess
 import tempfile
 import time
@@ -35,6 +36,7 @@ import github as github_mod
 import cost as cost_mod
 import quality as quality_mod
 import team as team_mod
+import meeting as meeting_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -464,6 +466,46 @@ def sync(
     else:
         if not quiet:
             rprint("[dim]Already up to date. Use --force to regenerate.[/dim]")
+
+
+@app.command()
+def meeting(
+    file: str = typer.Argument(..., help="Path to the meeting transcript file"),
+):
+    """Extract decisions from a meeting transcript file."""
+    if not os.path.exists(file):
+        rprint(f"[red]File not found: {file}[/red]")
+        raise typer.Exit(1)
+        
+    with open(file, "r") as f:
+        transcript = f.read()
+        
+    with console.status("[bold green]Extracting decisions..."):
+        extracted = meeting_mod.extract_decisions_from_transcript(transcript)
+        
+    if not extracted:
+        rprint("[yellow]No decisions found in transcript.[/yellow]")
+        return
+        
+    for d_dict in extracted:
+        d = store.Decision(
+            id=store.new_id(),
+            timestamp=datetime.utcnow().isoformat(),
+            domain="meeting",
+            title=d_dict["title"],
+            context=d_dict["context"],
+            options=d_dict["options"],
+            choice=d_dict["choice"],
+            reasoning=d_dict["reasoning"],
+            principles="[]",
+            outcome="",
+            tags='["meeting"]',
+            paths="[]",
+            project="",
+            source_tool="meeting"
+        )
+        store.save(d)
+        rprint(f"[green]✓ Extracted and saved:[/green] {d.title}")
 
 
 @app.command("projects")
