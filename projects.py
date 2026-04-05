@@ -277,10 +277,8 @@ def sync_project(project_root: str, verbose: bool = False) -> Optional[Path]:
     if tool_injector:
         try:
             tool_injector.inject_project_context(
-                project_root=project_root,
-                decisions=relevant,
+                project_root=Path(project_root),
                 context_content=content,
-                verbose=verbose,
             )
         except Exception as e:
             if verbose:

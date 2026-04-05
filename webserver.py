@@ -500,12 +500,16 @@ def sync_project_ui():
 
 @app.route("/projects/toggle", methods=["POST"])
 def toggle_project_meta():
-    root = request.form.get("root", "").strip()
-    field = request.form.get("field", "").strip()
-    value = request.form.get("value", "false").lower() == "true"
+    data = request.json
+    if not data:
+        return jsonify({"error": "No JSON data"}), 400
+        
+    root = data.get("root", "").strip()
+    field = data.get("field", "").strip()
+    value = data.get("value")
     
     if root and field in ("archived", "confidential"):
-        kwargs = {field: value}
+        kwargs = {field: bool(value)}
         projects_mod.set_project_metadata(root, **kwargs)
         return jsonify({"ok": True})
     return jsonify({"error": "invalid"}), 400
