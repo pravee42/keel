@@ -125,8 +125,17 @@ _decide_log_prompt() {{
 
 # Gemini CLI wrapper
 gemini() {{
-  _decide_log_prompt "gemini" "$@"
-  command gemini "$@"
+  local cmd="gemini $@"
+  local output
+  output=$(command gemini "$@")
+  local exit_code=$?
+  
+  # Send to keel queue
+  local payload="User: $cmd\nAssistant:\n$output"
+  echo "$payload" | {PYTHON} {QUEUE_WRITER} --source gemini --type prompt --cwd "$(pwd)" 2>/dev/null &
+  
+  echo "$output"
+  return $exit_code
 }}
 
 # Cursor wrapper
