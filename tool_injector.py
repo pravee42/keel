@@ -46,6 +46,11 @@ TOOL_TARGETS = {
         "is_markdown": True,
         "marker_style": "html",
     },
+    "gemini": {
+        "filename": "GEMINI.md",
+        "is_markdown": True,
+        "marker_style": "html",
+    },
 }
 
 

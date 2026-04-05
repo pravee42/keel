@@ -516,6 +516,66 @@ def toggle_project_meta():
 
 
 # ─────────────────────────────────────────────
+# Shadow Poller
+# ─────────────────────────────────────────────
+
+@app.route("/poller")
+def poller_page():
+    import poller
+    state = poller.load_state()
+    return render_template("poller.html", active="poller", state=state)
+
+
+# ─────────────────────────────────────────────
+# Intelligence
+# ─────────────────────────────────────────────
+
+@app.route("/intelligence")
+def intelligence_page():
+    import style
+    import meeting
+    decisions = store.get_all()
+    style_profile = style.analyze_prompting_style(decisions)
+    return render_template("intelligence.html", active="intelligence",
+                           style_profile=style_profile)
+
+
+@app.route("/intelligence/meeting", methods=["POST"])
+def process_meeting():
+    import meeting
+    transcript = request.form.get("transcript", "").strip()
+    if not transcript:
+        flash("No transcript provided.", "error")
+        return redirect(url_for("intelligence_page"))
+        
+    extracted = meeting.extract_decisions_from_transcript(transcript)
+    if extracted:
+        # Save extracted decisions to store (logic to be implemented in store.py or here)
+        for d_dict in extracted:
+            d = store.Decision(
+                id=store.new_id(),
+                timestamp=datetime.utcnow().isoformat(),
+                domain="meeting",
+                title=d_dict["title"],
+                context=d_dict["context"],
+                options=d_dict["options"],
+                choice=d_dict["choice"],
+                reasoning=d_dict["reasoning"],
+                principles="[]",
+                outcome="",
+                tags=json.dumps(["meeting"]),
+                paths="[]",
+                project="",
+                source_tool="meeting"
+            )
+            store.save(d)
+        flash(f"Extracted {len(extracted)} decisions from meeting.", "success")
+    else:
+        flash("No decisions found in transcript.", "info")
+    return redirect(url_for("intelligence_page"))
+
+
+# ─────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────
 

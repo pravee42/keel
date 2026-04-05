@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Intelligence{% endblock %}
+{% block content %}
+
+<h1 class="text-2xl font-bold text-slate-800 mb-6">Developer Intelligence</h1>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+  <!-- Prompting Style Learner -->
+  <div class="card p-6">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-xl">✍️</span>
+      <h2 class="font-semibold text-slate-700">Prompting Style Guide</h2>
+    </div>
+    <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-600 italic border border-slate-100">
+      {{ style_profile }}
+    </div>
+    <p class="text-xs text-slate-400 mt-4">
+      Synthesized from your recent decision reasoning. Keel uses this to match your tone in autonomous responses.
+    </p>
+  </div>
+
+  <!-- Meeting Analysis -->
+  <div class="card p-6">
+    <div class="flex items-center gap-2 mb-4">
+      <span class="text-xl">🎤</span>
+      <h2 class="font-semibold text-slate-700">Meeting Analysis</h2>
+    </div>
+    <p class="text-sm text-slate-500 mb-4">
+      Paste a meeting transcript below to extract architectural decisions and strategic shifts.
+    </p>
+    <form action="/intelligence/meeting" method="POST">
+      <textarea name="transcript" rows="6" 
+        class="w-full border border-slate-200 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
+        placeholder="Paste transcript here..."></textarea>
+      <button type="submit" class="mt-3 w-full bg-sky-600 hover:bg-sky-700 text-white font-medium py-2 rounded-lg text-sm transition-colors">
+        Extract Decisions
+      </button>
+    </form>
+  </div>
+
+</div>
+
+{% endblock %}
