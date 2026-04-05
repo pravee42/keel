@@ -3,6 +3,7 @@
 import json
 import os
 import time
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Dict
@@ -10,8 +11,11 @@ from typing import List, Dict
 import config as cfg
 import shadow_agent
 import profile as profile_mod
+import style as style_mod
+import store
 from adapters.slack import SlackAdapter
 from adapters.github import GitHubAdapter
+from adapters.teams import TeamsAdapter
 from adapters.teams import TeamsAdapter
 
 STATE_FILE = Path.home() / ".keel" / "polling_state.json"
@@ -40,11 +44,14 @@ def run_poller_once():
     last_poll = state["last_poll_at"]
     processed = set(state["processed_ids"])
     
-    # Load Persona
+    # Load Persona & Style
     persona = profile_mod.load_persona()
     if not persona:
         print("Poller: No persona found. Skipping cycle.")
         return
+        
+    all_decisions = store.get_all()
+    style_guide = style_mod.analyze_prompting_style(all_decisions)
 
     # Platforms and Adapters
     adapters = []
@@ -81,7 +88,7 @@ def run_poller_once():
             continue
         
         print(f"Poller: Analyzing mention {mid}...")
-        analysis = shadow_agent.analyze_mention(m.get("text", ""), persona)
+        analysis = shadow_agent.analyze_mention(m.get("text", ""), persona, style_guide)
         
         if analysis.get("confidence", 0) >= 100:
             action = analysis.get("action")
@@ -93,8 +100,24 @@ def run_poller_once():
                         break
             elif action == "code":
                 print(f"Poller: Triggering code fix for {mid}...")
-                # Execution of code fixes would involve running shell commands in specific repos
-                pass
+                repo_path = m.get("repo_path", "")
+                if repo_path and os.path.exists(repo_path):
+                    prompt_text = f"Resolve this issue mentioned on {m.get('source')}: {m.get('text')}"
+                    # Use gemini or claude-code depending on preference (defaulting to gemini CLI here)
+                    subprocess.Popen(
+                        ["gemini", "--prompt", prompt_text],
+                        cwd=repo_path,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL
+                    )
+                    
+                    ack_text = "I'm looking into this now. I'll open a PR or commit the fix shortly."
+                    for adapter in adapters:
+                        if adapter.source == m.get("source"):
+                            adapter.send_reply(m.get("id"), ack_text)
+                            break
+                else:
+                    print(f"Poller: Could not resolve repo_path for {mid}")
             
             processed.add(mid)
             new_processed.append(mid)
