@@ -76,7 +76,13 @@ def _load_meta(project_root: str) -> dict:
             return json.loads(p.read_text())
         except Exception:
             pass
-    return {"last_synced_at": "", "decision_count": 0, "project": project_root}
+    return {
+        "last_synced_at": "",
+        "decision_count": 0,
+        "project": project_root,
+        "archived": False,
+        "confidential": False
+    }
 
 
 def _save_meta(project_root: str, meta: dict) -> None:
@@ -84,11 +90,31 @@ def _save_meta(project_root: str, meta: dict) -> None:
     _meta_path(project_root).write_text(json.dumps(meta, indent=2))
 
 
+def get_project_metadata(project_root: str) -> dict:
+    """Return metadata for a project (archived, confidential, last_synced)."""
+    return _load_meta(project_root)
+
+
+def set_project_metadata(project_root: str, archived: bool = None, confidential: bool = None) -> None:
+    """Update metadata for a project."""
+    meta = _load_meta(project_root)
+    if archived is not None:
+        meta["archived"] = archived
+    if confidential is not None:
+        meta["confidential"] = confidential
+    _save_meta(project_root, meta)
+
+
 def is_stale(project_root: str) -> bool:
     """True if the project has never been synced or has new decisions since last sync."""
     if not project_root:
         return False
     meta = _load_meta(project_root)
+    
+    # Never sync archived projects
+    if meta.get("archived", False):
+        return False
+        
     last_synced = meta.get("last_synced_at", "")
     if not last_synced:
         return True
@@ -106,14 +132,28 @@ def get_relevant_decisions(project_root: str, all_decisions: Optional[list] = No
     Priority order:
     1. Decisions made directly in this project
     2. Cross-project decisions tagged 'arch' (global architectural principles)
+       - EXCLUDING decisions from other projects marked as 'confidential'
     """
     if all_decisions is None:
         all_decisions = store.get_all()
 
     project_specific = [d for d in all_decisions if d.project == project_root]
+    
+    # Find which other projects are confidential
+    confidential_roots = set()
+    for meta_file in PROJECTS_META_DIR.glob("*.json"):
+        try:
+            m = json.loads(meta_file.read_text())
+            if m.get("confidential") and m.get("project") != project_root:
+                confidential_roots.add(m.get("project"))
+        except:
+            pass
+
     arch_global = [
         d for d in all_decisions
-        if d.project != project_root and "arch" in json.loads(d.tags)
+        if d.project != project_root 
+        and "arch" in json.loads(d.tags)
+        and d.project not in confidential_roots  # Strict Isolation
     ]
 
     seen = set()
