@@ -12,6 +12,7 @@ import shadow_agent
 import profile as profile_mod
 from adapters.slack import SlackAdapter
 from adapters.github import GitHubAdapter
+from adapters.teams import TeamsAdapter
 
 STATE_FILE = Path.home() / ".keel" / "polling_state.json"
 
@@ -57,6 +58,11 @@ def run_poller_once():
     github_token = current_cfg.get("api_keys", {}).get("github")
     if github_token:
         adapters.append(GitHubAdapter(github_token))
+        
+    # Teams
+    teams_token = current_cfg.get("api_keys", {}).get("teams")
+    if teams_token:
+        adapters.append(TeamsAdapter(teams_token))
 
     # Cycle through adapters
     all_mentions = []
