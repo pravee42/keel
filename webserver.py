@@ -591,11 +591,19 @@ def config_page():
             import os as _os
             env = _os.environ.get(info["key_env"])
             key_status[p] = "(env var)" if env else ""
+            
+    integration_status = {}
+    for i, info in cfg.INTEGRATIONS.items():
+        stored = current_cfg.get("api_keys", {}).get(i)
+        integration_status[i] = (stored[:8] + "…") if stored else ""
+
     return render_template("config.html", active="config",
                            providers=cfg.PROVIDERS,
+                           integrations=cfg.INTEGRATIONS,
                            current_provider=current_cfg.get("provider", "anthropic"),
                            current_model=current_cfg.get("model", ""),
-                           key_status=key_status)
+                           key_status=key_status,
+                           integration_status=integration_status)
 
 
 @app.route("/config/provider", methods=["POST"])
@@ -613,11 +621,25 @@ def save_provider():
 @app.route("/config/keys", methods=["POST"])
 def save_keys():
     saved = 0
+    # Save Provider Keys
     for p in cfg.PROVIDERS:
         key = request.form.get(f"key_{p}", "").strip()
         if key:
-            cfg.set_api_key(p, key)
+            # We need to bypass the check in config.py or update config.py to handle both
+            current_cfg = cfg.load()
+            current_cfg.setdefault("api_keys", {})[p] = key
+            cfg.save(current_cfg)
             saved += 1
+            
+    # Save Integration Keys
+    for i in cfg.INTEGRATIONS:
+        key = request.form.get(f"key_{i}", "").strip()
+        if key:
+            current_cfg = cfg.load()
+            current_cfg.setdefault("api_keys", {})[i] = key
+            cfg.save(current_cfg)
+            saved += 1
+            
     flash(f"{saved} key(s) saved.", "success")
     return redirect(url_for("config_page"))
 

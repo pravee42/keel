@@ -69,6 +69,12 @@ PROVIDERS = {
     },
 }
 
+INTEGRATIONS = {
+    "slack":  {"label": "Slack User Token"},
+    "github": {"label": "GitHub PAT"},
+    "teams":  {"label": "Teams App Token"},
+}
+
 _DEFAULTS = {
     "provider": "anthropic",
     "model":    "claude-opus-4-6",

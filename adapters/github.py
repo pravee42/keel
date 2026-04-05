@@ -14,10 +14,38 @@ class GitHubAdapter:
         }
 
     def get_mentions(self, last_poll_at: str) -> List[Dict]:
-        """Fetch all issue/PR mentions since the last poll timestamp."""
-        # For Phase 2, we implement a basic notification-based mention detection.
-        # last_poll_at is ISO timestamp.
-        return []
+        """Fetch all issue/PR mentions since the last poll timestamp using Notifications API."""
+        # last_poll_at is ISO timestamp. GitHub notifications API supports 'since'.
+        params = {"since": last_poll_at, "all": True}
+        resp = requests.get(f"{self.base_url}/notifications", headers=self.headers, params=params)
+        
+        if not resp.ok:
+            print(f"GitHubAdapter Error: {resp.text}")
+            return []
+            
+        notifications = resp.json()
+        mentions = []
+        for n in notifications:
+            if n.get("reason") in ("mention", "team_mention"):
+                subject = n.get("subject", {})
+                url = subject.get("url", "")
+                if "issues" in url or "pulls" in url:
+                    # Extract owner/repo/number
+                    # subject['url'] format: https://api.github.com/repos/owner/repo/issues/1
+                    parts = url.split("/")
+                    if len(parts) >= 4:
+                        owner = parts[-4]
+                        repo = parts[-3]
+                        num = parts[-1]
+                        mid = f"{owner}/{repo}/{num}"
+                        
+                        mentions.append({
+                            "id": mid,
+                            "text": subject.get("title", "No title"),
+                            "source": self.source,
+                            "url": url
+                        })
+        return mentions
 
     def send_reply(self, issue_id: str, text: str):
         """Post a comment on a GitHub issue or PR.
