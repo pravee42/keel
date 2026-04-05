@@ -27,6 +27,9 @@ class Decision:
     paths: str           # JSON list — file/module paths this decision touches
     project: str         # absolute git root path, or '' if unknown
     outcome_quality: str = ""  # good | neutral | bad | '' (unset)
+    source_tool: str = ""  # claude-code | copilot | gemini | cursor | antigravity | git | manual
+    prompt: str = ""  # the input/prompt that led to this decision
+    output: str = ""  # the LLM output/response captured
 
 
 def _connect() -> sqlite3.Connection:
@@ -65,15 +68,22 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE decisions ADD COLUMN project TEXT NOT NULL DEFAULT ''")
     if "outcome_quality" not in existing:
         conn.execute("ALTER TABLE decisions ADD COLUMN outcome_quality TEXT NOT NULL DEFAULT ''")
+    if "source_tool" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN source_tool TEXT NOT NULL DEFAULT ''")
+    if "prompt" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN prompt TEXT NOT NULL DEFAULT ''")
+    if "output" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN output TEXT NOT NULL DEFAULT ''")
+    conn.commit()
 
 
 def save(d: Decision) -> None:
     conn = _connect()
     conn.execute(
-        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (d.id, d.timestamp, d.domain, d.title, d.context,
          d.options, d.choice, d.reasoning, d.principles, d.outcome,
-         d.tags, d.paths, d.project, d.outcome_quality),
+         d.tags, d.paths, d.project, d.outcome_quality, d.source_tool, d.prompt, d.output),
     )
     conn.commit()
 

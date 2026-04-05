@@ -5,14 +5,24 @@ import os
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Tuple
+
+try:
+    import platform_utils
+    QUEUE_PATH = platform_utils.get_keel_home() / "queue.jsonl"
+    PROCESSED_PATH = platform_utils.get_keel_home() / "processed.jsonl"
+except ImportError:
+    QUEUE_PATH = Path.home() / ".keel" / "queue.jsonl"
+    PROCESSED_PATH = Path.home() / ".keel" / "processed.jsonl"
 
 import llm
 import store
 import analyzer
 
-QUEUE_PATH = Path.home() / ".keel" / "queue.jsonl"
-PROCESSED_PATH = Path.home() / ".keel" / "processed.jsonl"
+try:
+    import projects
+except ImportError:
+    projects = None
 
 
 # ─────────────────────────────────────────────
@@ -41,6 +51,27 @@ Content:
 
 Reply with ONLY valid JSON:
 {{"is_decision": true/false, "confidence": 0.0-1.0, "reason": "one line why"}}"""
+
+
+def _split_prompt_output(text: str, source: str) -> Tuple[str, str]:
+    """Split combined text into prompt and output based on source heuristics."""
+    if source == "git":
+        if "COMMIT:" in text and "CHANGED FILES:" in text:
+            commit_idx = text.find("COMMIT:") + len("COMMIT:")
+            files_idx = text.find("CHANGED FILES:")
+            commit_msg = text[commit_idx:files_idx].strip()
+            changed = text[files_idx + len("CHANGED FILES:"):].strip()
+            return (commit_msg, changed)
+    
+    if source in ("gemini", "antigravity"):
+        if "User:" in text and "Assistant:" in text:
+            user_idx = text.find("User:") + len("User:")
+            asst_idx = text.find("Assistant:")
+            prompt = text[user_idx:asst_idx].strip()
+            output = text[asst_idx + len("Assistant:"):].strip()
+            return (prompt, output)
+    
+    return (text, "")
 
 
 def _parse_json(text: str, fallback: dict) -> dict:
@@ -251,7 +282,13 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
             return ", ".join(str(v) for v in val)
         return str(val)
 
-    # Step 3: Build and store Decision
+    # Step 3: Extract prompt/output if needed
+    prompt = event.get("prompt", "")
+    output = event.get("output", "")
+    if not prompt and not output and event.get("text"):
+        prompt, output = _split_prompt_output(event["text"], event["source"])
+
+    # Step 4: Build and store Decision
     d = store.Decision(
         id=store.new_id(),
         timestamp=event["timestamp"],
@@ -266,6 +303,9 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
         tags=json.dumps(_detect_tags(event["text"], extracted)),
         paths=json.dumps(_detect_paths(event)),
         project=_detect_project(event.get("cwd", "")),
+        source_tool=event.get("source", "manual"),
+        prompt=prompt,
+        output=output,
     )
 
     # Extract principles

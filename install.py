@@ -1,10 +1,16 @@
-"""Install hooks for Claude Code, Gemini CLI, and Git."""
+"""Install hooks for Claude Code, Gemini CLI, and Git (cross-platform)."""
 
 import json
 import os
 import stat
 import subprocess
+import platform as platform_module
 from pathlib import Path
+
+try:
+    import platform_utils
+except ImportError:
+    platform_utils = None
 
 # Absolute path to the queue_writer.py script
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -76,13 +82,22 @@ echo "$FULL_TEXT" | {PYTHON} {QUEUE_WRITER} --source git --type commit --cwd "$(
 
 
 def install_shell_wrappers():
-    """Add shell function wrappers for Gemini CLI and other AI tools."""
-    wrapper_script = Path.home() / ".keel" / "shell_wrappers.sh"
-    wrapper_script.parent.mkdir(exist_ok=True)
+    """Add shell function wrappers for Gemini CLI and other AI tools (cross-platform)."""
+    # Detect OS and shell
+    system = platform_module.system()
+    
+    if system == "Windows":
+        # Windows: PowerShell or cmd (not typical for shell wrappers)
+        print("  ⊘ Shell wrappers: not applicable on Windows")
+        return
+    
+    # Unix-like systems (macOS, Linux)
+    shell_env = os.environ.get("SHELL", "/bin/zsh")
+    is_zsh = "zsh" in shell_env
+    rc_file = Path.home() / (".zshrc" if is_zsh else ".bashrc")
 
-    # Detect shell
-    shell = os.environ.get("SHELL", "/bin/zsh")
-    rc_file = Path.home() / (".zshrc" if "zsh" in shell else ".bashrc")
+    wrapper_script = Path.home() / ".keel" / "shell_wrappers.sh"
+    wrapper_script.parent.mkdir(parents=True, exist_ok=True)
 
     content = f"""
 # ── keel: AI CLI wrappers ──────────────────────────────
@@ -114,22 +129,22 @@ gemini() {{
   command gemini "$@"
 }}
 
-# ChatGPT CLI wrapper (if you use it)
-chatgpt() {{
-  _decide_log_prompt "chatgpt" "$@"
-  command chatgpt "$@"
-}}
-
-# Cursor (if used from CLI)
+# Cursor wrapper
 cursor() {{
   _decide_log_prompt "cursor" "$@"
   command cursor "$@"
 }}
 
-# Aider wrapper
-aider() {{
-  _decide_log_prompt "aider" "$@"
-  command aider "$@"
+# Antigravity wrapper
+antigravity() {{
+  _decide_log_prompt "antigravity" "$@"
+  command antigravity "$@"
+}}
+
+# ChatGPT CLI wrapper (if used)
+chatgpt() {{
+  _decide_log_prompt "chatgpt" "$@"
+  command chatgpt "$@"
 }}
 # ─────────────────────────────────────────────────────────
 """
@@ -185,6 +200,38 @@ def install_cron():
         print(f"    Manual: add to crontab:")
         for cmd in to_add:
             print(f"      {cmd}")
+
+
+def install_background_processor():
+    """Install background processor using OS-specific scheduler.
+    
+    - macOS: LaunchAgent (via service.py)
+    - Linux: cron
+    - Windows: Task Scheduler (via service.py)
+    """
+    system = platform_module.system()
+    
+    if system == "Darwin":
+        # macOS: use LaunchAgent
+        try:
+            install_launch_agents()
+        except Exception as e:
+            print(f"  ⊘ LaunchAgent installation failed: {e}")
+    elif system == "Linux":
+        # Linux: use cron
+        try:
+            install_cron()
+        except Exception as e:
+            print(f"  ⊘ Cron installation failed: {e}")
+    elif system == "Windows":
+        # Windows: use Task Scheduler via service.py
+        try:
+            import service
+            service.install_agents(verbose=True)
+        except Exception as e:
+            print(f"  ⊘ Task Scheduler installation failed: {e}")
+    else:
+        print(f"  ⊘ Background processor: unsupported OS {system}")
 
 
 def uninstall_claude_code():

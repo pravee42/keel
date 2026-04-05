@@ -17,6 +17,11 @@ from typing import Optional
 import store
 import llm
 
+try:
+    import tool_injector
+except ImportError:
+    tool_injector = None
+
 PROJECTS_META_DIR = Path.home() / ".keel" / "projects"
 MARKER_START      = "<!-- keel:project:start -->"
 MARKER_END        = "<!-- keel:project:end -->"
@@ -179,7 +184,17 @@ def remove_project_context(project_path: Path) -> bool:
 # ─────────────────────────────────────────────
 
 def sync_project(project_root: str, verbose: bool = False) -> Optional[Path]:
-    """Build and inject project context. Returns path written, or None if skipped."""
+    """Build and inject project context into CLAUDE.md and tool-specific files.
+    
+    Tool-specific files updated (if tool_injector available):
+    - .cursorrules (Cursor)
+    - .windsurfrules (Windsurf)
+    - .clinerules (Claude CLI)
+    - .copilot-instructions.md (GitHub Copilot)
+    - CLAUDE.md (Claude Code) - always updated
+    
+    Returns path written (CLAUDE.md), or None if skipped.
+    """
     if not project_root:
         return None
 
@@ -215,7 +230,21 @@ def sync_project(project_root: str, verbose: bool = False) -> Optional[Path]:
         max_tokens=900,
     )
 
+    # Inject into CLAUDE.md (always)
     target_path = inject_project_context(content, Path(project_root))
+
+    # Inject into tool-specific files (if tool_injector available)
+    if tool_injector:
+        try:
+            tool_injector.inject_project_context(
+                project_root=project_root,
+                decisions=relevant,
+                context_content=content,
+                verbose=verbose,
+            )
+        except Exception as e:
+            if verbose:
+                print(f"  Warning: tool_injector failed: {e}")
 
     _save_meta(project_root, {
         "last_synced_at": datetime.utcnow().isoformat(),

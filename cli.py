@@ -342,10 +342,17 @@ def install(
     claude: bool = typer.Option(False, "--claude", help="Only Claude Code hook"),
     git: bool = typer.Option(False, "--git", help="Only Git hook"),
     shell: bool = typer.Option(False, "--shell", help="Only shell wrappers"),
-    cron: bool = typer.Option(False, "--cron", help="Only cron job"),
+    background: bool = typer.Option(False, "--background", help="Only background processor"),
     uninstall: bool = typer.Option(False, "--uninstall", help="Remove all hooks"),
 ):
-    """Install hooks for Claude Code, Git, Gemini CLI, and other AI tools."""
+    """Install hooks for Claude Code, Git, Gemini CLI, and other AI tools (cross-platform).
+    
+    Automatically detects OS and installs appropriate hooks:
+    - macOS: LaunchAgent for background processing
+    - Linux: cron jobs for background processing
+    - Windows: Task Scheduler (if supported)
+    - All OS: Claude Code + Git hooks, shell wrappers
+    """
     import install as ins
 
     if uninstall:
@@ -354,7 +361,7 @@ def install(
         ins.uninstall_git_hook()
         return
 
-    specific = claude or git or shell or cron
+    specific = claude or git or shell or background
     rprint("[bold]Installing decide hooks...[/bold]\n")
 
     if not specific or claude:
@@ -363,9 +370,8 @@ def install(
         ins.install_git_hook()
     if not specific or shell:
         ins.install_shell_wrappers()
-    if not specific or cron:
-        ins.install_cron()
-        ins.install_launch_agents()
+    if not specific or background:
+        ins.install_background_processor()
 
     rprint(f"\n[green]Done.[/green] Queue: [dim]{proc.QUEUE_PATH}[/dim]")
     rprint("Run [bold]keel process[/bold] to process captured events manually.")
@@ -404,7 +410,14 @@ def sync(
     force: bool = typer.Option(False, "--force", "-f", help="Force sync even if up to date"),
     quiet: bool = typer.Option(False, "--quiet", "-q"),
 ):
-    """Inject per-project decision context into project CLAUDE.md files.
+    """Inject per-project decision context into CLAUDE.md and tool-specific files.
+
+    Updates:
+    - CLAUDE.md (Claude Code)
+    - .cursorrules (Cursor)
+    - .windsurfrules (Windsurf)
+    - .clinerules (Claude CLI)
+    - .copilot-instructions.md (GitHub Copilot)
 
     \b
     keel sync                 # sync current git repo
