@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Projects{% endblock %}
+{% block content %}
+
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-2xl font-bold text-slate-800">Projects</h1>
+  <span class="text-sm text-slate-500">{{ projects | length }} active repos</span>
+</div>
+
+<div class="card overflow-hidden">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-50 border-b border-slate-200">
+      <tr>
+        <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Project Name / Path</th>
+        <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Decisions</th>
+        <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Archived</th>
+        <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Confidential</th>
+        <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-48">Last Synced</th>
+        <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide w-24">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100">
+      {% for p in projects %}
+      <tr class="hover:bg-slate-50 transition-colors">
+        <td class="px-4 py-4">
+          <div class="font-medium text-slate-800">{{ p.name }}</div>
+          <div class="text-xs text-slate-400 font-mono mt-0.5">{{ p.root }}</div>
+        </td>
+        <td class="px-4 py-4 text-center">
+          <span class="badge bg-blue-50 text-blue-600">{{ p.count }}</span>
+        </td>
+        <td class="px-4 py-4 text-center">
+          <input type="checkbox" {% if p.archived %}checked{% endif %}
+            onchange="toggleMeta('{{ p.root }}', 'archived', this.checked)"
+            class="rounded border-slate-300 text-sky-500 focus:ring-sky-500">
+        </td>
+        <td class="px-4 py-4 text-center">
+          <input type="checkbox" {% if p.confidential %}checked{% endif %}
+            onchange="toggleMeta('{{ p.root }}', 'confidential', this.checked)"
+            class="rounded border-slate-300 text-sky-500 focus:ring-sky-500">
+        </td>
+        <td class="px-4 py-4 text-slate-500 text-xs">
+          {{ p.last_synced[:16].replace('T', ' ') if p.last_synced else 'Never' }}
+        </td>
+        <td class="px-4 py-4 text-right">
+          <form action="/projects/sync" method="POST" class="inline">
+            <input type="hidden" name="root" value="{{ p.root }}">
+            <button type="submit" class="text-sky-600 hover:text-sky-800 font-medium">Sync</button>
+          </form>
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">No projects detected yet. Projects are added when you capture decisions or run <code class="bg-slate-100 px-1 rounded">keel sync</code>.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-8 p-6 bg-amber-50 rounded-xl border border-amber-100">
+  <h3 class="text-sm font-semibold text-amber-800 mb-2">Project Isolation Rules</h3>
+  <ul class="text-xs text-amber-700 space-y-1.5 list-disc pl-4">
+    <li><strong>Archived:</strong> Keel stops syncing <code>CLAUDE.md</code> for this project. Background polling remains active but won't trigger syncs.</li>
+    <li><strong>Confidential:</strong> Decisions from this project will <strong>never</strong> be used as cross-project context for other projects.</li>
+    <li>Isolation is strictly enforced during prompt generation. Global engineering principles are still shared unless they originate from a confidential project.</li>
+  </ul>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function toggleMeta(root, field, value) {
+  try {
+    const resp = await fetch('/projects/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ root, field, value })
+    });
+    if (!resp.ok) throw new Error('Update failed');
+    // Optional: show a small toast/feedback
+  } catch (err) {
+    alert(err.message);
+    location.reload(); // Reset checkbox if failed
+  }
+}
+</script>
+{% endblock %}

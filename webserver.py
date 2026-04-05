@@ -463,6 +463,55 @@ def api_team_persona():
 
 
 # ─────────────────────────────────────────────
+# Projects
+# ─────────────────────────────────────────────
+
+@app.route("/projects")
+def projects_list():
+    all_projects = store.get_projects()
+    views = []
+    for p in all_projects:
+        root = p["project"]
+        if not root:
+            continue
+        meta = projects_mod.get_project_metadata(root)
+        views.append({
+            "root":         root,
+            "name":         Path(root).name,
+            "count":        p["count"],
+            "archived":     meta.get("archived", False),
+            "confidential": meta.get("confidential", False),
+            "last_synced":  meta.get("last_synced_at", ""),
+        })
+    return render_template("projects.html", active="projects", projects=views)
+
+
+@app.route("/projects/sync", methods=["POST"])
+def sync_project_ui():
+    root = request.form.get("root", "").strip()
+    if root:
+        path = projects_mod.sync_project(root, verbose=True)
+        if path:
+            flash(f"Synced {Path(root).name}.", "success")
+        else:
+            flash(f"Sync failed for {Path(root).name}.", "error")
+    return redirect(url_for("projects_list"))
+
+
+@app.route("/projects/toggle", methods=["POST"])
+def toggle_project_meta():
+    root = request.form.get("root", "").strip()
+    field = request.form.get("field", "").strip()
+    value = request.form.get("value", "false").lower() == "true"
+    
+    if root and field in ("archived", "confidential"):
+        kwargs = {field: value}
+        projects_mod.set_project_metadata(root, **kwargs)
+        return jsonify({"ok": True})
+    return jsonify({"error": "invalid"}), 400
+
+
+# ─────────────────────────────────────────────
 # Config
 # ─────────────────────────────────────────────
 
