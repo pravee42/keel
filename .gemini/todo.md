@@ -1,0 +1,11 @@
+- [x] Chunk 1: Foundation and Gemini CLI Capture
+  - [x] Task 1: Update install.py for Gemini CLI Capture
+- [x] Chunk 2: Intelligence Modules (Style & Meeting)
+  - [x] Task 2: Create Prompt Style Learner (style.py)
+  - [x] Task 3: Create Meeting Analyzer (meeting.py)
+- [x] Chunk 3: Project Management Dashboard Isolation
+  - [x] Task 4: Extend projects.py for Confidentiality & UI Toggles
+  - [x] Task 5: Expose Project Management in webserver.py
+- [x] Chunk 4: Shadow Poller and Execution
+  - [x] Task 6: Implement shadow_agent.py
+  - [x] Task 7: Implement Background poller.py

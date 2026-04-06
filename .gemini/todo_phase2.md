@@ -1,0 +1,9 @@
+- [ ] Chunk 1: Intelligence Integration & Meeting CLI
+  - [x] Task 1: Integrate Style Learner into Shadow Agent
+  - [x] Task 2: Add CLI Command for Meeting Analysis
+- [ ] Chunk 2: Adapter Implementation
+  - [x] Task 3: Implement Slack Adapter
+  - [x] Task 4: Implement GitHub Adapter
+  - [x] Task 5: Implement Teams Adapter
+- [ ] Chunk 3: Autonomous Code Execution
+  - [x] Task 6: Implement Code Task Execution in Poller

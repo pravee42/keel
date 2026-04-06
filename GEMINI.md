@@ -67,3 +67,26 @@ keel service install
 - **Conventional Commits:** Use standard prefixes like `feat:`, `fix:`, `refactor:`, `chore:`.
 - **Non-Blocking Hooks:** Ensure that any changes to `queue_writer.py` remain extremely lightweight and fast, as it runs on every prompt.
 - **Documentation:** Keep `ARCHITECTURE.md` and `CLAUDE.md` updated with significant architectural shifts.
+<!-- keel:project:start -->
+## Project Decisions (q)
+**Real mention detection**: Uses platform-specific adapters for Slack (`@user`) and GitHub (`@user` or team mentions) with format-aware parsing to avoid false positives from basic string matching.
+
+**Autonomous AI execution**: Implements a polling mechanism in `poller.py` to trigger local AI agents when conditions are met, prioritizing simplicity and reliability over event-driven alternatives.
+
+**GitHub/Slack API integration**: Replaces mocks with real API calls in adapters, enabling production-grade interactions while maintaining test coverage for edge cases.
+
+**Style guide enforcement**: Embeds project style rules directly in the shadow agent’s prompt (`shadow_agent.py`) to reduce manual corrections and ensure consistent output.
+
+**Shadow poller expansion**: Follows a structured design spec and implementation plan to address scalability and intelligence gaps in the existing poller.
+
+**Sidebar styling immunity**: Applies 100% inline styles with JavaScript-managed hover/active states to prevent Tailwind CDN timing conflicts from overriding UI behavior.
+
+**Decision documentation**: Captures PR descriptions and review comments in structured JSON, automating context injection to preserve tradeoff discussions for future analysis.
+
+## Cross-Project Principles
+**Performance optimization**: Splits large datasets into smaller chunks (e.g., 39k rows) to enable parallel processing and faster dashboard updates without image rebuilds.
+
+**UI consistency**: Relies on inline styles or high-specificity selectors to prevent external stylesheets from disrupting critical interface elements.
+
+**Terminology clarity**: Uses concise, widely understood labels (e.g., "Tech" instead of "Infra") to improve cross-project navigation and reduce cognitive load.
+<!-- keel:project:end -->
