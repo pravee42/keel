@@ -254,6 +254,11 @@ def _detect_paths(event: dict) -> list:
 
 def _process_one(event: dict, verbose: bool = False) -> dict:
     """Classify, extract, store, and check one event."""
+    if event.get("type") == "test":
+        if verbose:
+            print(f"  [{event['source']}] (test event) → skipped")
+        return {"skipped": True, "reason": "test event"}
+
     if verbose:
         source = event["source"]
         preview = event["text"][:60].replace("\n", " ")

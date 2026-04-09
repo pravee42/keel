@@ -12,9 +12,10 @@ try:
 except ImportError:
     platform_utils = None
 
-# Absolute path to the queue_writer.py script
+# Absolute path to the queue_writer.py and cli.py scripts
 SCRIPT_DIR = Path(__file__).parent.resolve()
 QUEUE_WRITER = SCRIPT_DIR / "queue_writer.py"
+CLI = SCRIPT_DIR / "cli.py"
 PYTHON = os.sys.executable
 
 
@@ -87,11 +88,16 @@ def install_shell_wrappers():
     system = platform_module.system()
     
     if system == "Windows":
-        # Windows: PowerShell or cmd (not typical for shell wrappers)
-        print("  ⊘ Shell wrappers: not applicable on Windows")
+        # Windows: PowerShell support
+        shell = platform_utils.get_shell()
+        if shell == "pwsh" or shell == "powershell":
+            _install_powershell_wrappers()
+        else:
+            print(f"  ⊘ Shell wrappers: unsupported shell {shell} on Windows")
         return
     
     # Unix-like systems (macOS, Linux)
+    # ... rest of the existing code ...
     shell_env = os.environ.get("SHELL", "/bin/zsh")
     is_zsh = "zsh" in shell_env
     rc_file = Path.home() / (".zshrc" if is_zsh else ".bashrc")
@@ -174,6 +180,71 @@ chatgpt() {{
         print(f"  Shell wrappers: already in {rc_file}")
 
 
+def _install_powershell_wrappers():
+    """Install PowerShell function wrappers for AI tools."""
+    rc_file = platform_utils.get_rc_file()
+    if not rc_file:
+        return
+
+    wrapper_script = Path.home() / ".keel" / "shell_wrappers.ps1"
+    wrapper_script.parent.mkdir(parents=True, exist_ok=True)
+
+    content = f"""
+# ── keel: AI CLI wrappers (PowerShell) ─────────────────
+function Invoke-DecideLogPrompt {{
+    param($Source, $Args)
+    # Find last non-flag arg
+    $text = ""
+    for ($i = 0; $i -lt $Args.Length; $i++) {{
+        if ($Args[$i] -match "^-(p|prompt)$" -and ($i + 1) -lt $Args.Length) {{
+            $text = $Args[$i+1]
+            break
+        }}
+        if ($Args[$i] -notmatch "^-") {{ $text = $Args[$i] }}
+    }}
+    if ($text) {{
+        $text | & "{PYTHON}" "{QUEUE_WRITER}" --source $Source --type prompt --cwd (Get-Location)
+    }}
+}}
+
+function gemini {{
+    $output = command gemini @args
+    $status = $LASTEXITCODE
+    
+    $payload = "User: $($args -join ' ')\nAssistant:\n$output"
+    $payload | & "{PYTHON}" "{QUEUE_WRITER}" --source gemini --type prompt --cwd (Get-Location)
+    
+    $output
+    return $status
+}}
+
+function cursor {{
+    Invoke-DecideLogPrompt -Source "cursor" -Args $args
+    command cursor @args
+}}
+
+function antigravity {{
+    Invoke-DecideLogPrompt -Source "antigravity" -Args $args
+    command antigravity @args
+}}
+# ────────────────────────────────────────────────────────
+"""
+    wrapper_script.write_text(content)
+
+    # Add dot-source line to profile
+    source_line = f'\n. "{wrapper_script}"'
+    rc_content = rc_file.read_text() if rc_file.exists() else ""
+
+    if str(wrapper_script) not in rc_content:
+        rc_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(rc_file, "a") as f:
+            f.write(source_line)
+        print(f"  ✓ PowerShell wrappers installed → {wrapper_script}")
+        print(f"    Added dot-source to {rc_file}")
+    else:
+        print(f"  PowerShell wrappers: already in {rc_file}")
+
+
 def install_launch_agents():
     """Install macOS LaunchAgents for background processing and daily persona refresh."""
     import service
@@ -213,35 +284,48 @@ def install_cron():
 
 
 def install_background_processor():
-    """Install background processor using OS-specific scheduler.
+    """Install background processor using OS-specific scheduler via platform_utils.
     
-    - macOS: LaunchAgent (via service.py)
+    - macOS: LaunchAgent
     - Linux: cron
-    - Windows: Task Scheduler (via service.py)
+    - Windows: Task Scheduler
     """
-    system = platform_module.system()
-    
-    if system == "Darwin":
-        # macOS: use LaunchAgent
-        try:
-            install_launch_agents()
-        except Exception as e:
-            print(f"  ⊘ LaunchAgent installation failed: {e}")
-    elif system == "Linux":
-        # Linux: use cron
-        try:
-            install_cron()
-        except Exception as e:
-            print(f"  ⊘ Cron installation failed: {e}")
-    elif system == "Windows":
-        # Windows: use Task Scheduler via service.py
-        try:
-            import service
-            service.install_agents(verbose=True)
-        except Exception as e:
-            print(f"  ⊘ Task Scheduler installation failed: {e}")
+    if not platform_utils:
+        print("  ⊘ platform_utils not found, skipping background install")
+        return
+
+    # 1. Collector (Process queue every 15 min)
+    collector_cmd = f"{PYTHON} {CLI} process --quiet"
+    ok = platform_utils.install_cron_job(
+        label="collector",
+        command=collector_cmd,
+        interval_minutes=15
+    )
+    if ok:
+        print("  ✓ Background collector installed (every 15 min)")
     else:
-        print(f"  ⊘ Background processor: unsupported OS {system}")
+        print("  ✗ Failed to install collector")
+
+    # 2. Sync (Sync all projects every 6 hours)
+    sync_cmd = f"{PYTHON} {CLI} sync --all --quiet"
+    ok = platform_utils.install_cron_job(
+        label="sync",
+        command=sync_cmd,
+        interval_minutes=360 # 6 hours
+    )
+    if ok:
+        print("  ✓ Background sync installed (every 6 hours)")
+
+    # 3. Profile (Refresh persona daily)
+    # Note: simple interval for now as calendar support is limited in platform_utils
+    profile_cmd = f"{PYTHON} {CLI} profile --build --inject-all --quiet"
+    ok = platform_utils.install_cron_job(
+        label="profile",
+        command=profile_cmd,
+        interval_minutes=1440 # 24 hours
+    )
+    if ok:
+        print("  ✓ Background profile refresh installed (daily)")
 
 
 def uninstall_claude_code():

@@ -11,19 +11,19 @@ Keel passively watches your AI coding sessions and git commits, extracts the dec
 ## How it works
 
 ```
-Claude Code / git commit / gemini CLI / Meeting Transcripts / Slack & GitHub Mentions
-  → queue_writer.py     non-blocking hook, appends to ~/.keel/queue.jsonl
+Claude Code / git commit / AI CLIs / Meeting Transcripts / Slack & GitHub Mentions
+  → queue_writer.py     non-blocking hook, appends to ~/.keel/queue.jsonl (with prompt/output isolation)
   → poller.py           background service, polls Slack/GitHub/Teams for mentions
-  → processor.py        runs every 15 min via LaunchAgent (or: keel process)
+  → processor.py        runs every 15 min via LaunchAgent/cron/Task Scheduler (or: keel process)
       → classify: is this actually a decision?
       → extract: title, context, options, choice, reasoning, principles
       → style.py: analyze & replicate developer prompting style
       → meeting.py: extract decisions from verbal discussions
-      → consistency diff → macOS notification if contradiction found
+      → consistency diff → macOS/Windows notification if contradiction found
       → store in ~/.keel/decisions.db (with strict project isolation)
   → profile.py          synthesizes full decision history into persona.md
   → inject.py           writes global persona into tool configs
-  → projects.py         writes context into {repo}/CLAUDE.md + GEMINI.md
+  → projects.py         writes context into {repo}/CLAUDE.md + GEMINI.md + .cursorrules etc.
 ```
 
 ---
@@ -39,7 +39,7 @@ pip install -r requirements.txt
 # Add keel to your PATH
 echo 'export PATH="$PATH:'"$(pwd)"'"' >> ~/.zshrc && source ~/.zshrc
 
-# Set up hooks + background services
+# Set up hooks + background services (Supports macOS, Linux, and Windows)
 keel install
 keel service install
 keel config provider anthropic
@@ -61,9 +61,17 @@ keel remove <id>               # delete a misclassified decision
 keel web                       # start the local web dashboard (Dashboard, Projects, Poller)
 ```
 
+### Source Management
+```bash
+keel sources                   # list all event sources and their status
+keel sources --test            # test all sources (checks queue connectivity)
+keel sources <source> --test   # test a specific source
+keel sources <source> --disable # disable event capture for a specific tool
+```
+
 ### Per-project injection
 ```bash
-keel sync                      # sync current repo's CLAUDE.md + GEMINI.md
+keel sync                      # sync current repo's CLAUDE.md + GEMINI.md + IDE rules
 keel sync --all                # sync all known projects
 keel projects                  # list all projects with isolation/archival settings
 ```
@@ -97,8 +105,9 @@ Keel can act as your "shadow clone" across Slack, GitHub, and Teams. It monitors
 
 ## Project Management & Isolation
 
-Every git repository gets its own context block injected into `{repo}/CLAUDE.md` and `{repo}/GEMINI.md`.
+Every git repository gets its own context block injected into its configuration files.
 
+*   **Supported Tools:** `CLAUDE.md`, `GEMINI.md`, `.cursorrules`, `.windsurfrules`, `.clinerules`, `.copilot-instructions.md`.
 *   **Strict Isolation:** Decisions from "Project A" never leak into "Project B" context.
 *   **Confidentiality:** Mark projects as `confidential` to prevent their decisions from ever being used as cross-project principles.
 *   **Archival:** Archive old projects to stop background syncs while preserving history.
@@ -112,6 +121,7 @@ Every git repository gets its own context block injected into `{repo}/CLAUDE.md`
 | Claude Code prompts | `UserPromptSubmit` hook in `~/.claude/settings.json` |
 | Git commits | Global `post-commit` hook (message + diff stat) |
 | Gemini CLI | Shell function wrapper (captures input + output) |
+| Cursor / Antigravity | Shell function wrappers (capture prompts) |
 | GitHub PRs | `keel github fetch` — PR descriptions + review comments |
 | Meetings | Web UI upload — extracts decisions from transcripts/recordings |
 | Slack / Teams / GitHub | `poller.py` — captures mentions and thread context |
@@ -120,7 +130,7 @@ Every git repository gets its own context block injected into `{repo}/CLAUDE.md`
 
 ## Data
 
-Everything lives in `~/.keel/`:
+Everything lives in `~/.keel/` (Unix) or `%APPDATA%/keel/` (Windows):
 
 ```
 ~/.keel/
@@ -148,8 +158,10 @@ analyzer.py       LLM analysis: principles, similarity, isolation logic
 llm.py            unified LLM client (Anthropic / OpenAI / Gemini)
 store.py          SQLite decisions store
 projects.py       Per-project context management and metadata
-tool_injector.py  Multi-tool context injection (CLAUDE.md, GEMINI.md, .cursorrules)
+tool_injector.py  Multi-tool context injection (.cursorrules, CLAUDE.md, etc.)
 install.py        Cross-platform hook and wrapper installer
+platform_utils.py Cross-platform utilities (paths, shells, background jobs)
+sources.py        Event source management and status tracking
 ```
 
 ---

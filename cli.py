@@ -37,6 +37,7 @@ import cost as cost_mod
 import quality as quality_mod
 import team as team_mod
 import meeting as meeting_mod
+import sources as sources_mod
 
 app        = typer.Typer(help="Track decisions. Learn your judgment. Flag inconsistencies.")
 config_app = typer.Typer(help="Configure LLM provider, model, and API keys.")
@@ -565,6 +566,87 @@ def projects_cmd(
         rprint(f"\n[green]✓ {synced} project(s) synced[/green]")
     else:
         rprint(f"\n[dim]keel sync --all   to sync all  ·  keel sync   for current project[/dim]")
+
+
+@app.command()
+def sources(
+    test: bool = typer.Option(False, "--test", "-t", help="Test all configured sources"),
+    source: Optional[str] = typer.Argument(None, help="Specific source to test or install"),
+    install: bool = typer.Option(False, "--install", "-i", help="Install/update a source-specific wrapper"),
+    disable: bool = typer.Option(False, "--disable", help="Disable event capture for a tool"),
+    enable: bool = typer.Option(False, "--enable", help="Enable event capture for a tool"),
+):
+    """List, test, and manage event sources (claude-code, copilot, gemini, etc.)."""
+    import sources as src_mod
+
+    if source:
+        if source not in src_mod.SUPPORTED_SOURCES:
+            rprint(f"[red]Unknown source: {source}[/red]")
+            rprint(f"[dim]Supported: {', '.join(src_mod.SUPPORTED_SOURCES.keys())}[/dim]")
+            raise typer.Exit(1)
+            
+        if install:
+            rprint(f"[bold]Installing/Updating[/bold] {source}...")
+            ok = src_mod.install_source(source)
+            if ok:
+                rprint(f"[green]✓ {source} installed/updated[/green]")
+            else:
+                rprint(f"[red]✗ Failed to install {source}[/red]")
+            return
+
+        if disable:
+            src_mod.set_enabled(source, False)
+            rprint(f"[yellow]✓ Disabled capture for {source}[/yellow]")
+            return
+
+        if enable:
+            src_mod.set_enabled(source, True)
+            rprint(f"[green]✓ Enabled capture for {source}[/green]")
+            return
+
+        if test:
+            with console.status(f"Testing {source}..."):
+                ok = src_mod.test_source(source)
+            if ok:
+                rprint(f"  [green]✓[/green] {source}: [green]connected[/green]")
+            else:
+                rprint(f"  [red]✗[/red] {source}: [red]failed[/red]")
+            return
+
+    # Default: List all sources
+    status = src_mod.get_status()
+    
+    if test and not source:
+        rprint("[bold]Testing all sources...[/bold]")
+        for key in status:
+            with console.status(f"Testing {key}..."):
+                ok = src_mod.test_source(key)
+                status[key]["test_ok"] = ok
+    
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Source", width=15)
+    table.add_column("Status", width=12)
+    table.add_column("Type", width=18)
+    if test:
+        table.add_column("Test", width=10)
+    table.add_column("Description")
+
+    for key, info in status.items():
+        install_str = "[green]installed[/green]" if info["installed"] else "[dim]not installed[/dim]"
+        enabled_str = "" if info["enabled"] else " [red](disabled)[/red]"
+        status_str = f"{install_str}{enabled_str}"
+        
+        row = [key, status_str, info["type"]]
+        if test:
+            test_ok = info.get("test_ok", False)
+            row.append("[green]pass[/green]" if test_ok else "[red]fail[/red]")
+        row.append(info["description"])
+        table.add_row(*row)
+
+    console.print(table)
+    if not test:
+        rprint("\n[dim]keel sources --test          # test all sources[/dim]")
+        rprint("[dim]keel sources <source> --test # test specific source[/dim]")
 
 
 @app.command()
