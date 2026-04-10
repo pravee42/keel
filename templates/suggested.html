@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Suggested Decisions{% endblock %}
+
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+  <div>
+    <h1 class="text-2xl font-bold text-slate-900">Suggested Decisions</h1>
+    <p class="text-slate-500 text-sm mt-1">
+      These decisions were aggressively inferred from your code changes and context.
+      Review them to ensure accuracy before they are added to your persona.
+    </p>
+  </div>
+</div>
+
+{% if not decisions %}
+<div class="card p-12 text-center">
+  <div class="text-4xl mb-4">📥</div>
+  <h3 class="text-lg font-semibold text-slate-900">All caught up!</h3>
+  <p class="text-slate-500">No suggested decisions awaiting review.</p>
+</div>
+{% else %}
+<div class="space-y-4">
+  {% for d in decisions %}
+  <div id="decision-{{ d.id }}" class="card p-6 border-l-4 border-l-sky-500">
+    <div class="flex justify-between items-start mb-4">
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="badge bg-sky-100 text-sky-700">INFERRED</span>
+          <span class="text-xs text-slate-400">{{ d.timestamp[:10] }}</span>
+        </div>
+        <h3 class="text-lg font-bold text-slate-900">{{ d.title }}</h3>
+      </div>
+      <div class="flex gap-2">
+        <button onclick="acceptDecision('{{ d.id }}')" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors">
+          Accept
+        </button>
+        <button onclick="rejectDecision('{{ d.id }}')" class="px-4 py-2 border border-slate-200 hover:bg-slate-50 text-slate-600 text-sm font-medium rounded-lg transition-colors">
+          Reject
+        </button>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Context</h4>
+        <p class="text-sm text-slate-600">{{ d.context }}</p>
+      </div>
+      <div>
+        <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Choice</h4>
+        <p class="text-sm text-slate-900 font-medium">{{ d.choice }}</p>
+      </div>
+    </div>
+
+    <div class="mt-4 pt-4 border-top border-slate-100">
+      <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Reasoning</h4>
+      <p class="text-sm text-slate-600 italic">"{{ d.reasoning }}"</p>
+    </div>
+
+    {% if d.alternatives_list %}
+    <div class="mt-4">
+      <h4 class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Inferred Alternatives</h4>
+      <div class="flex flex-wrap gap-2">
+        {% for alt in d.alternatives_list %}
+        <span class="badge bg-slate-100 text-slate-600">{{ alt }}</span>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function acceptDecision(did) {
+  const ok = confirm("Accept this inferred decision? It will be added to your permanent history.");
+  if (!ok) return;
+  
+  const res = await post(`/api/decisions/${did}/accept`, {});
+  if (res.status === 'ok') {
+    document.getElementById(`decision-${did}`).remove();
+    if (document.querySelectorAll('[id^="decision-"]').length === 0) {
+      location.reload();
+    }
+  }
+}
+
+async function rejectDecision(did) {
+  const ok = confirm("Discard this suggestion? It will be permanently deleted.");
+  if (!ok) return;
+  
+  const res = await post(`/api/decisions/${did}/reject`, {});
+  if (res.status === 'ok') {
+    document.getElementById(`decision-${did}`).remove();
+    if (document.querySelectorAll('[id^="decision-"]').length === 0) {
+      location.reload();
+    }
+  }
+}
+</script>
+{% endblock %}

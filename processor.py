@@ -26,31 +26,34 @@ except ImportError:
 
 
 # ─────────────────────────────────────────────
-# Step 1: Classify — is this a decision worth tracking?
+# Unified Triage & Extraction
 # ─────────────────────────────────────────────
 
-CLASSIFIER_PROMPT = """You are filtering events to find architectural, design, or strategic decisions.
+TRIAGE_EXTRACTION_PROMPT = """Analyze this {source} {type} to find Requirements and Decisions.
 
-An event is worth tracking if it contains:
-- A choice between approaches/tools/frameworks/architectures
-- A tradeoff being made (speed vs quality, simplicity vs flexibility, etc.)
-- A strategic direction being set (what to build, how to structure, what to prioritize)
-- An explicit reasoning about WHY something is done a certain way
+**Requirements:** Constraints, goals, or functional needs (e.g., "Must be fast", "Use PostgreSQL").
+**Decisions:** Implementation choices made to fulfill requirements (e.g., "Using an index for speed").
 
-NOT worth tracking:
-- Routine tasks ("fix typo", "add test", "update README")
-- Questions or exploration without a decision
-- Debugging a specific bug
-- Formatting/style changes
-- "How do I..." questions
-
-Source: {source}
-Type: {type}
 Content:
 {text}
 
 Reply with ONLY valid JSON:
-{{"is_decision": true/false, "confidence": 0.0-1.0, "reason": "one line why"}}"""
+{{
+  "is_requirement": true/false,
+  "requirement_text": "what must be achieved",
+  "requirement_type": "Functional|Technical|Constraint|Business",
+  "requirement_priority": "High|Medium|Low",
+  
+  "is_decision": true/false,
+  "decision_title": "short title",
+  "decision_domain": "code|writing|business|life|other",
+  "decision_context": "situation",
+  "decision_options": "alternatives considered",
+  "decision_choice": "what was decided",
+  "decision_reasoning": "why",
+  "decision_alternatives": ["inferred", "common", "alternatives"],
+  "is_implicit": true/false (true if inferred from code/diff but not explicitly stated)
+}}"""
 
 
 def _split_prompt_output(text: str, source: str) -> Tuple[str, str]:
@@ -93,41 +96,13 @@ def _parse_json(text: str, fallback: dict) -> dict:
         return fallback
 
 
-def classify(event: dict) -> dict:
-    text = llm.complete([{"role": "user", "content": CLASSIFIER_PROMPT.format(
-        source=event["source"],
-        type=event["type"],
-        text=event["text"][:2000],
-    )}], max_tokens=256).strip()
-    return _parse_json(text, {"is_decision": False, "confidence": 0})
-
-
-# ─────────────────────────────────────────────
-# Step 2: Extract structured decision from raw text
-# ─────────────────────────────────────────────
-
-EXTRACTOR_PROMPT = """Extract a structured decision from this {source} {type}.
-
-Content:
-{text}
-
-Reply with ONLY valid JSON (no markdown):
-{{
-  "title": "short title (under 10 words)",
-  "domain": "code|writing|business|life|other",
-  "context": "what situation/problem prompted this",
-  "options": "what alternatives were considered or implied",
-  "choice": "what was decided or what approach was taken",
-  "reasoning": "why — extract the explicit or implied reasoning"
-}}"""
-
-
-def extract_decision(event: dict) -> dict:
-    text = llm.complete([{"role": "user", "content": EXTRACTOR_PROMPT.format(
+def triage_and_extract(event: dict) -> dict:
+    """Single-pass triage and extraction for efficiency."""
+    text = llm.complete([{"role": "user", "content": TRIAGE_EXTRACTION_PROMPT.format(
         source=event["source"],
         type=event["type"],
         text=event["text"][:3000],
-    )}], max_tokens=1024).strip()
+    )}], max_tokens=1536).strip()
     return _parse_json(text, {})
 
 
@@ -253,7 +228,7 @@ def _detect_paths(event: dict) -> list:
 
 
 def _process_one(event: dict, verbose: bool = False) -> dict:
-    """Classify, extract, store, and check one event."""
+    """Triage, extract, store, and check one event."""
     if event.get("type") == "test":
         if verbose:
             print(f"  [{event['source']}] (test event) → skipped")
@@ -264,98 +239,105 @@ def _process_one(event: dict, verbose: bool = False) -> dict:
         preview = event["text"][:60].replace("\n", " ")
         print(f"  [{source}] {preview}...")
 
-    # Step 1: Classify
-    classification = classify(event)
-    if not classification.get("is_decision") or classification.get("confidence", 0) < 0.6:
+    # Step 1: Triage and Extract
+    extracted = triage_and_extract(event)
+    is_req = extracted.get("is_requirement", False)
+    is_dec = extracted.get("is_decision", False)
+
+    if not is_req and not is_dec:
         if verbose:
-            print(f"    → skipped ({classification.get('reason', 'not a decision')})")
-        return {"skipped": True, "reason": classification.get("reason")}
+            print("    → skipped (no requirement or decision found)")
+        return {"skipped": True, "reason": "nothing to track"}
 
-    # Step 2: Extract structured decision
-    try:
-        extracted = extract_decision(event)
-    except Exception as e:
+    # Step 2: Handle Requirement
+    req_id = None
+    if is_req:
+        req_id = store.new_id()
+        r = store.Requirement(
+            id=req_id,
+            timestamp=event["timestamp"],
+            text=extracted.get("requirement_text", ""),
+            type=extracted.get("requirement_type", "Functional"),
+            priority=extracted.get("requirement_priority", "Medium"),
+            project=_detect_project(event.get("cwd", "")),
+            source_event_id=event["id"]
+        )
+        store.save_requirement(r)
         if verbose:
-            print(f"    → extraction failed: {e}")
-        return {"skipped": True, "reason": f"extraction error: {e}"}
+            print(f"    → saved requirement [{req_id}]: {r.text[:50]}...")
 
-    def _s(val, default="") -> str:
-        """Coerce LLM output field to str — guards against null/list returns."""
-        if val is None:
-            return default
-        if isinstance(val, list):
-            return ", ".join(str(v) for v in val)
-        return str(val)
+    # Step 3: Handle Decision
+    dec_id = None
+    if is_dec:
+        dec_id = store.new_id()
+        # Extract prompt/output if needed for Decision
+        prompt = event.get("prompt", "")
+        output = event.get("output", "")
+        if not prompt and not output and event.get("text"):
+            prompt, output = _split_prompt_output(event["text"], event["source"])
 
-    # Step 3: Extract prompt/output if needed
-    prompt = event.get("prompt", "")
-    output = event.get("output", "")
-    if not prompt and not output and event.get("text"):
-        prompt, output = _split_prompt_output(event["text"], event["source"])
+        d = store.Decision(
+            id=dec_id,
+            timestamp=event["timestamp"],
+            domain=extracted.get("decision_domain", "other"),
+            title=extracted.get("decision_title", "Untitled"),
+            context=extracted.get("decision_context", ""),
+            options=extracted.get("decision_options", ""),
+            choice=extracted.get("decision_choice", ""),
+            reasoning=extracted.get("decision_reasoning", ""),
+            principles="[]",
+            outcome="",
+            tags=json.dumps(_detect_tags(event["text"], extracted)),
+            paths=json.dumps(_detect_paths(event)),
+            project=_detect_project(event.get("cwd", "")),
+            source_tool=event.get("source", "manual"),
+            prompt=prompt,
+            output=output,
+            is_implicit=1 if extracted.get("is_implicit") else 0,
+            alternatives=json.dumps(extracted.get("decision_alternatives", []))
+        )
 
-    # Step 4: Build and store Decision
-    d = store.Decision(
-        id=store.new_id(),
-        timestamp=event["timestamp"],
-        domain=_s(extracted.get("domain"), "other"),
-        title=_s(extracted.get("title"), "Untitled"),
-        context=_s(extracted.get("context")),
-        options=_s(extracted.get("options")),
-        choice=_s(extracted.get("choice")),
-        reasoning=_s(extracted.get("reasoning")),
-        principles="[]",
-        outcome="",
-        tags=json.dumps(_detect_tags(event["text"], extracted)),
-        paths=json.dumps(_detect_paths(event)),
-        project=_detect_project(event.get("cwd", "")),
-        source_tool=event.get("source", "manual"),
-        prompt=prompt,
-        output=output,
-    )
-
-    # Extract principles
-    try:
-        principles = analyzer.extract_principles(d)
-        d.principles = json.dumps(principles)
-    except Exception:
-        pass
-
-    store.save(d)
-
-    # Trigger per-project CLAUDE.md sync (non-blocking, never raises)
-    if d.project:
+        # Extract principles
         try:
-            import projects as proj_mod
-            proj_mod.sync_if_stale(d.project, quiet=True)
+            principles = analyzer.extract_principles(d)
+            d.principles = json.dumps(principles)
         except Exception:
             pass
 
-    if verbose:
-        print(f"    → saved [{d.id}]: {d.title}")
-        if json.loads(d.principles):
-            print(f"       principles: {', '.join(json.loads(d.principles))}")
+        store.save(d)
+        
+        if verbose:
+            implicit_str = " (IMPLICIT)" if d.is_implicit else ""
+            print(f"    → saved decision [{dec_id}]{implicit_str}: {d.title}")
 
-    # Step 4: Consistency check
-    history = [h for h in store.get_all() if h.id != d.id]
-    if history:
-        try:
-            similar = analyzer.find_similar(d, history, top_n=2)
-            if similar:
-                diff = analyzer.consistency_diff(d, similar)
-                # Check if inconsistency was flagged
-                flagged = any(w in diff.lower() for w in
-                              ["inconsist", "contradict", "conflict", "changed", "different from"])
-                if flagged:
-                    notify_inconsistency(d.title, diff)
-                    if verbose:
-                        print(f"    ⚠ Inconsistency flagged — check `decide show {d.id}`")
-                    # Store diff alongside decision in a sidecar file
-                    _save_diff(d.id, diff)
-        except Exception as e:
-            if verbose:
-                print(f"    → consistency check failed: {e}")
+        # Trigger per-project CLAUDE.md sync (non-blocking)
+        if d.project:
+            try:
+                import projects as proj_mod
+                proj_mod.sync_if_stale(d.project, quiet=True)
+            except Exception:
+                pass
 
-    return {"saved": True, "id": d.id, "title": d.title}
+        # Step 4: Consistency check
+        history = [h for h in store.get_all() if h.id != d.id]
+        if history:
+            try:
+                similar = analyzer.find_similar(d, history, top_n=2)
+                if similar:
+                    diff = analyzer.consistency_diff(d, similar)
+                    flagged = any(w in diff.lower() for w in
+                                  ["inconsist", "contradict", "conflict", "changed", "different from"])
+                    if flagged:
+                        notify_inconsistency(d.title, diff)
+                        _save_diff(d.id, diff)
+            except Exception:
+                pass
+
+    # Step 5: Link if both exist
+    if req_id and dec_id:
+        store.link_requirement_decision(req_id, dec_id)
+
+    return {"saved": True, "req_id": req_id, "dec_id": dec_id}
 
 
 def _save_diff(decision_id: str, diff: str):

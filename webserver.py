@@ -59,8 +59,10 @@ def _decision_view(d):
         "outcome":        d.outcome,
         "outcome_quality": d.outcome_quality,
         "project":        d.project,
+        "is_implicit":    bool(d.is_implicit),
         "tags_list":      json.loads(d.tags) if d.tags else [],
         "principles_list": json.loads(d.principles) if d.principles else [],
+        "alternatives_list": json.loads(d.alternatives) if d.alternatives else [],
     }
 
 
@@ -111,11 +113,32 @@ def index():
 @app.route("/decisions")
 def decisions_list():
     all_d = store.get_all()
+    # Filter out implicit decisions from main list
+    all_d = [d for d in all_d if not d.is_implicit]
     views = [_decision_view(d) for d in all_d]
     domains = sorted({d["domain"] for d in views})
     all_tags = sorted({t for v in views for t in v["tags_list"]})
     return render_template("decisions.html", active="decisions",
                            decisions=views, domains=domains, all_tags=all_tags)
+
+
+@app.route("/suggested")
+def suggested():
+    implicit = store.get_implicit_decisions()
+    views = [_decision_view(d) for d in implicit]
+    return render_template("suggested.html", active="suggested", decisions=views)
+
+
+@app.route("/api/decisions/<did>/accept", methods=["POST"])
+def accept_decision(did):
+    store.accept_implicit_decision(did)
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/decisions/<did>/reject", methods=["POST"])
+def reject_decision(did):
+    store.delete(did)
+    return jsonify({"status": "ok"})
 
 
 @app.route("/decisions/<did>")

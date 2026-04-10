@@ -12,6 +12,17 @@ DB_PATH = Path.home() / ".keel" / "decisions.db"
 
 
 @dataclass
+class Requirement:
+    id: str
+    timestamp: str
+    text: str
+    type: str          # Functional | Technical | Constraint | Business
+    priority: str      # High | Medium | Low
+    project: str       # git root
+    source_event_id: str
+
+
+@dataclass
 class Decision:
     id: str
     timestamp: str
@@ -30,6 +41,8 @@ class Decision:
     source_tool: str = ""  # claude-code | copilot | gemini | cursor | antigravity | git | manual
     prompt: str = ""  # the input/prompt that led to this decision
     output: str = ""  # the LLM output/response captured
+    is_implicit: int = 0 # 1 if inferred from diff, 0 if explicit
+    alternatives: str = "[]" # JSON list of inferred alternatives
 
 
 def _connect() -> sqlite3.Connection:
@@ -53,6 +66,25 @@ def _connect() -> sqlite3.Connection:
             project    TEXT NOT NULL DEFAULT ''
         )
     """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS requirements (
+            id               TEXT PRIMARY KEY,
+            timestamp        TEXT NOT NULL,
+            text            TEXT NOT NULL,
+            type            TEXT NOT NULL,
+            priority        TEXT NOT NULL,
+            project         TEXT NOT NULL,
+            source_event_id TEXT NOT NULL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS requirement_decisions (
+            requirement_id    TEXT NOT NULL,
+            decision_id       TEXT NOT NULL,
+            relationship_type TEXT NOT NULL DEFAULT 'fulfills',
+            PRIMARY KEY (requirement_id, decision_id)
+        )
+    """)
     _migrate(conn)
     conn.commit()
     return conn
@@ -74,17 +106,69 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE decisions ADD COLUMN prompt TEXT NOT NULL DEFAULT ''")
     if "output" not in existing:
         conn.execute("ALTER TABLE decisions ADD COLUMN output TEXT NOT NULL DEFAULT ''")
+    if "is_implicit" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN is_implicit INTEGER NOT NULL DEFAULT 0")
+    if "alternatives" not in existing:
+        conn.execute("ALTER TABLE decisions ADD COLUMN alternatives TEXT NOT NULL DEFAULT '[]'")
     conn.commit()
 
 
 def save(d: Decision) -> None:
     conn = _connect()
     conn.execute(
-        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "INSERT INTO decisions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (d.id, d.timestamp, d.domain, d.title, d.context,
          d.options, d.choice, d.reasoning, d.principles, d.outcome,
-         d.tags, d.paths, d.project, d.outcome_quality, d.source_tool, d.prompt, d.output),
+         d.tags, d.paths, d.project, d.outcome_quality, d.source_tool, 
+         d.prompt, d.output, d.is_implicit, d.alternatives),
     )
+    conn.commit()
+
+
+def save_requirement(r: Requirement) -> None:
+    conn = _connect()
+    conn.execute(
+        "INSERT INTO requirements VALUES (?,?,?,?,?,?,?)",
+        (r.id, r.timestamp, r.text, r.type, r.priority, r.project, r.source_event_id),
+    )
+    conn.commit()
+
+
+def link_requirement_decision(r_id: str, d_id: str, rel_type: str = "fulfills") -> None:
+    conn = _connect()
+    conn.execute(
+        "INSERT OR IGNORE INTO requirement_decisions VALUES (?,?,?)",
+        (r_id, d_id, rel_type),
+    )
+    conn.commit()
+
+
+def get_requirements() -> list[Requirement]:
+    conn = _connect()
+    rows = conn.execute("SELECT * FROM requirements ORDER BY timestamp DESC").fetchall()
+    return [Requirement(**dict(r)) for r in rows]
+
+
+def get_decision_requirements(decision_id: str) -> list[str]:
+    conn = _connect()
+    rows = conn.execute(
+        "SELECT requirement_id FROM requirement_decisions WHERE decision_id = ?",
+        (decision_id,)
+    ).fetchall()
+    return [r["requirement_id"] for r in rows]
+
+
+def get_implicit_decisions() -> list[Decision]:
+    conn = _connect()
+    rows = conn.execute(
+        "SELECT * FROM decisions WHERE is_implicit = 1 ORDER BY timestamp DESC"
+    ).fetchall()
+    return [_row_to_decision(r) for r in rows]
+
+
+def accept_implicit_decision(decision_id: str) -> None:
+    conn = _connect()
+    conn.execute("UPDATE decisions SET is_implicit = 0 WHERE id = ?", (decision_id,))
     conn.commit()
 
 
@@ -221,6 +305,11 @@ def _row_to_decision(row) -> Decision:
     d.setdefault("paths", "[]")
     d.setdefault("project", "")
     d.setdefault("outcome_quality", "")
+    d.setdefault("source_tool", "")
+    d.setdefault("prompt", "")
+    d.setdefault("output", "")
+    d.setdefault("is_implicit", 0)
+    d.setdefault("alternatives", "[]")
     return Decision(**d)
 
 
